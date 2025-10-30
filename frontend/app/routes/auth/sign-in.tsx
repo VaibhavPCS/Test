@@ -91,7 +91,13 @@ const SignIn = () => {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-white p-4">
+    <div 
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{
+        background: 'var(--Linear-Gradient-for-Login, linear-gradient(180deg, rgba(0, 122, 255, 0.40) 0%, rgba(242, 118, 27, 0.40) 100%))',
+        backgroundSize: 'cover'
+      }}
+    >
       <div className="w-full max-w-[975px] h-[650px] bg-white rounded-2xl overflow-hidden shadow-lg flex gap-2.5 p-2.5">
         {/* Left Panel - Branding */}
         <div className="flex-1 bg-gradient-to-br from-sky-200 to-sky-300 rounded-2xl relative overflow-hidden">
@@ -130,35 +136,50 @@ const SignIn = () => {
                 style={{ width: '213.064px', height: '134.913px' }}
               />
             </div>
-            {/* Bottom left image - Vector 29 (rotated 288.875deg) */}
-            <div
-              className="absolute flex items-center justify-center left-[-41.8px] top-[79.07px]"
-              style={{
-                height: 'calc(1px * ((0 * 0.9462262392044067) + (0 * 0.323505699634552)))',
-                width: 'calc(1px * ((0 * 0.9462262392044067) + (0 * 0.323505699634552)))'
+            {/* Bottom left image - Vector 29 (optimized version) */}
+            <div 
+              className="absolute flex items-center justify-center left-[-41.8px] top-[79.07px]" 
+              style={{ 
+                height: '0px', 
+                width: '0px' 
               }}
-            >
-              <div className="flex-none" style={{ transform: 'rotate(288.875deg)' }}>
-                <div className="relative w-[213.064px] h-[134.913px]">
-                  <img
-                    src="/assets/3df9bb910847f92ec63648a7f818c7d8eb2dfd64.png"
-                    alt=""
-                    className="block max-w-none w-full h-full"
-                    style={{ width: '213.064px', height: '134.913px' }}
-                  />
-                </div>
-              </div>
+            > 
+              <div className="flex-none" style={{ transform: 'rotate(-71.125deg)' }}> 
+                <div 
+                  className="relative w-[213.064px] h-[134.913px]" 
+                  style={{ 
+                    top: '8.29rem', 
+                    left: '-5.398rem' 
+                  }}
+                > 
+                  <img 
+                    alt="" 
+                    className="block max-w-none w-full h-full" 
+                    src="/assets/3df9bb910847f92ec63648a7f818c7d8eb2dfd64.png" 
+                    style={{ 
+                      width: '213.064px', 
+                      height: '134.913px' 
+                    }} 
+                  /> 
+                </div> 
+              </div> 
             </div>
-            {/* Bottom center image - Vector 30 (rotated 216.211deg) */}
+            {/* Bottom center image - Vector 30 (optimized with precise implementation) */}
             <div
               className="absolute flex items-center justify-center left-[35.07px] top-[198.82px]"
               style={{
-                height: 'calc(1px * ((0 * 0.5907667279243469) + (0 * 0.8068424463272095)))',
-                width: 'calc(1px * ((0 * 0.5907667279243469) + (0 * 0.8068424463272095)))'
+                height: 'calc(0px)',
+                width: 'calc(0px)'
               }}
             >
-              <div className="flex-none" style={{ transform: 'rotate(216.211deg)' }}>
-                <div className="relative w-[213.064px] h-[136.066px]">
+              <div className="flex-none" style={{ transform: 'rotate(-143.789deg)' /* rotate(216.211deg) */ }}>
+                <div 
+                  className="relative w-[213.064px] h-[136.066px]"
+                  style={{
+                    bottom: '1.3rem',
+                    right: '10.88rem'
+                  }}
+                >
                   <img
                     src="/assets/ff2affc0e980f78fb25f86de9ab527d1d4b2fa98.png"
                     alt=""
@@ -168,16 +189,22 @@ const SignIn = () => {
                 </div>
               </div>
             </div>
-            {/* Right image - Vector 31 (rotated 144.835deg) */}
+            {/* Right image - Vector 31 (optimized with precise implementation) */}
             <div
               className="absolute flex items-center justify-center left-[174.91px] top-[136.41px]"
               style={{
-                height: 'calc(1px * ((0 * 0.5759255290031433) + (0 * 0.8175022006034851)))',
-                width: 'calc(1px * ((0 * 0.5759255290031433) + (0 * 0.8175022006034851)))'
+                height: 'calc(0px)',
+                width: 'calc(0px)'
               }}
             >
-              <div className="flex-none" style={{ transform: 'rotate(144.835deg)' }}>
-                <div className="relative w-[213.064px] h-[136.952px]">
+              <div className="flex-none" style={{ transform: 'rotate(142.535deg)' }}>
+                <div 
+                  className="relative w-[213.064px] h-[136.952px]"
+                  style={{
+                    bottom: '10.72rem',
+                    right: '2.1rem'
+                  }}
+                >
                   <img
                     src="/assets/76696078b52786db2907040e743a1286eadf36a7.png"
                     alt=""
