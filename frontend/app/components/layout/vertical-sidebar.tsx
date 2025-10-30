@@ -10,6 +10,7 @@ interface NavItem {
   icon: string; // SVG path
   badgeKey?: 'notifications' | 'messages'; // Key to identify which badge to show
   hasDropdown?: boolean; // For Administration item
+  subItems?: { name: string; href: string }[]; // Submenu items for dropdown
 }
 
 // Define the navigation items matching Figma design
@@ -46,6 +47,10 @@ const navItems: NavItem[] = [
     href: '/administration',
     icon: '/assets/b7b1ff15d3dbedec030add1434e807ef753068e4.svg', // Security icon
     hasDropdown: true,
+    subItems: [
+      { name: 'Role Management', href: '/administration/role-management' },
+      { name: 'User Management', href: '/administration/user-management' },
+    ],
   },
 ];
 
@@ -54,7 +59,18 @@ const VerticalSidebar = () => {
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
   const { badgeCounts } = useBadges();
 
-  const isActive = (href: string) => {
+  const isActive = (href: string, hasDropdown?: boolean, subItems?: { name: string; href: string }[]) => {
+    // For dropdown items, only consider them active if we're exactly on that route
+    // and not on any of their sub-routes
+    if (hasDropdown && subItems) {
+      const isOnSubRoute = subItems.some(subItem => location.pathname === subItem.href);
+      if (isOnSubRoute) {
+        return false; // Don't highlight parent if we're on a sub-route
+      }
+      return location.pathname === href;
+    }
+    
+    // For regular items, use the original logic
     return location.pathname === href || location.pathname.startsWith(href + '/');
   };
 
@@ -111,44 +127,75 @@ const VerticalSidebar = () => {
       {/* Navigation Items */}
       <nav className="flex-1 px-[12px] space-y-[4px]">
         {navItems.map((item) => {
-          const active = isActive(item.href);
+          const active = isActive(item.href, item.hasDropdown, item.subItems);
           const isExpanded = expandedItems.has(item.name);
 
           return (
             <div key={item.name}>
               {item.hasDropdown ? (
-                // Administration with dropdown
-                <button
-                  onClick={() => toggleDropdown(item.name)}
-                  className={`
-                    w-[200px] flex items-center justify-between
-                    rounded-[5px] pl-[12px] pr-0 py-[10px]
-                    transition-colors
-                    ${
-                      active
-                        ? 'bg-[#f2761b] text-white'
-                        : isExpanded
-                        ? 'bg-[#e6e8ec] text-[#717182]'
-                        : 'text-[#717182] hover:bg-[#e6e8ec]'
-                    }
-                  `}
-                >
-                  <div className="flex items-center gap-[12px]">
-                    <img
-                      src={item.icon}
-                      alt={item.name}
-                      className="w-[20px] h-[20px]"
+                <>
+                  {/* Administration with dropdown */}
+                  <button
+                    onClick={() => toggleDropdown(item.name)}
+                    className={`
+                      w-[200px] flex items-center justify-between
+                      rounded-[5px] pl-[12px] pr-0 py-[10px]
+                      transition-colors
+                      ${
+                        active
+                          ? 'bg-[#f2761b] text-white'
+                          : isExpanded
+                          ? 'bg-[#e6e8ec] text-[#717182]'
+                          : 'text-[#717182] hover:bg-[#e6e8ec]'
+                      }
+                    `}
+                  >
+                    <div className="flex items-center gap-[12px]">
+                      <img
+                        src={item.icon}
+                        alt={item.name}
+                        className="w-[20px] h-[20px]"
+                      />
+                      <span className="font-['Inter:Medium',sans-serif] text-[14px] tracking-[0.5px] leading-[normal]">
+                        {item.name}
+                      </span>
+                    </div>
+                    <ChevronDown
+                      className={`w-[24px] h-[24px] transition-transform ${
+                        isExpanded ? 'rotate-180' : ''
+                      }`}
                     />
-                    <span className="font-['Inter:Medium',sans-serif] text-[14px] tracking-[0.5px] leading-[normal]">
-                      {item.name}
-                    </span>
-                  </div>
-                  <ChevronDown
-                    className={`w-[24px] h-[24px] transition-transform ${
-                      isExpanded ? 'rotate-180' : ''
-                    }`}
-                  />
-                </button>
+                  </button>
+
+                  {/* Submenu items */}
+                  {isExpanded && item.subItems && (
+                    <div className="mt-[4px] space-y-[4px]">
+                      {item.subItems.map((subItem) => {
+                        const subActive = isActive(subItem.href, false);
+                        return (
+                          <Link
+                            key={subItem.href}
+                            to={subItem.href}
+                            className={`
+                              w-[200px] flex items-center
+                              rounded-[5px] pl-[44px] pr-[12px] py-[10px]
+                              transition-colors
+                              ${
+                                subActive
+                                  ? 'bg-[#f2761b] text-white'
+                                  : 'text-[#717182] hover:bg-[#e6e8ec]'
+                              }
+                            `}
+                          >
+                            <span className="font-['Inter:Regular',sans-serif] text-[14px] tracking-[0.5px] leading-[normal]">
+                              {subItem.name}
+                            </span>
+                          </Link>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               ) : (
                 // Regular navigation item
                 <Link

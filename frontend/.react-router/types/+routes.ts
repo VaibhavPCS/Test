@@ -46,6 +46,15 @@ type Pages = {
   "/administration": {
     params: {};
   };
+  "/administration/role-management": {
+    params: {};
+  };
+  "/administration/user-management": {
+    params: {};
+  };
+  "/profile": {
+    params: {};
+  };
   "/tasks": {
     params: {};
   };
@@ -78,7 +87,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/meetings" | "/messages" | "/administration" | "/tasks" | "/members" | "/archived" | "/settings" | "/project/:id" | "/task/:id" | "/*";
+    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/meetings" | "/messages" | "/administration" | "/administration/role-management" | "/administration/user-management" | "/profile" | "/tasks" | "/members" | "/archived" | "/settings" | "/project/:id" | "/task/:id" | "/*";
   };
   "routes/auth/auth-layout.tsx": {
     id: "routes/auth/auth-layout";
@@ -114,7 +123,7 @@ type RouteFiles = {
   };
   "components/layout/dashboard-layout.tsx": {
     id: "components/layout/dashboard-layout";
-    page: "/dashboard" | "/workspace" | "/meetings" | "/messages" | "/administration" | "/tasks" | "/members" | "/archived" | "/settings" | "/project/:id" | "/task/:id";
+    page: "/dashboard" | "/workspace" | "/meetings" | "/messages" | "/administration" | "/administration/role-management" | "/administration/user-management" | "/profile" | "/tasks" | "/members" | "/archived" | "/settings" | "/project/:id" | "/task/:id";
   };
   "routes/dashboard/dashboard.tsx": {
     id: "routes/dashboard/dashboard";
@@ -135,6 +144,18 @@ type RouteFiles = {
   "routes/administration/administration.tsx": {
     id: "routes/administration/administration";
     page: "/administration";
+  };
+  "routes/administration/role-management/role-management.tsx": {
+    id: "routes/administration/role-management/role-management";
+    page: "/administration/role-management";
+  };
+  "routes/administration/user-management/user-management.tsx": {
+    id: "routes/administration/user-management/user-management";
+    page: "/administration/user-management";
+  };
+  "routes/profile/profile.tsx": {
+    id: "routes/profile/profile";
+    page: "/profile";
   };
   "routes/tasks/tasks.tsx": {
     id: "routes/tasks/tasks";

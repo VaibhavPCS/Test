@@ -3,6 +3,7 @@ import { fetchData } from '@/lib/fetch-util';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import { useBadges } from '../../provider/badge-context';
 import NotificationPanel from './notification-panel';
+import ProfilePanel from './profile-panel';
 
 interface UserInfo {
   _id: string;
@@ -23,7 +24,9 @@ const HorizontalNavbar: React.FC<HorizontalNavbarProps> = ({
 }) => {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const notificationButtonRef = useRef<HTMLButtonElement>(null);
+  const profileButtonRef = useRef<HTMLButtonElement>(null);
   const { badgeCounts, refreshBadgeCounts } = useBadges();
 
   useEffect(() => {
@@ -117,7 +120,11 @@ const HorizontalNavbar: React.FC<HorizontalNavbarProps> = ({
           </button>
 
           {/* User Profile Card */}
-          <button className="bg-white flex items-center gap-[20px] pl-[8px] pr-[20px] py-[2px] rounded-[5px] hover:bg-gray-50 transition-colors">
+          <button
+            ref={profileButtonRef}
+            onClick={() => setShowProfile(!showProfile)}
+            className="bg-white flex items-center gap-[20px] pl-[8px] pr-[20px] py-[2px] rounded-[5px] hover:bg-gray-50 transition-colors"
+          >
             <div className="flex items-center gap-[20px]">
               {/* Avatar */}
               <Avatar
@@ -160,6 +167,14 @@ const HorizontalNavbar: React.FC<HorizontalNavbarProps> = ({
         isOpen={showNotifications}
         onClose={() => setShowNotifications(false)}
         anchorEl={notificationButtonRef.current}
+      />
+
+      {/* Profile Panel */}
+      <ProfilePanel
+        isOpen={showProfile}
+        onClose={() => setShowProfile(false)}
+        anchorEl={profileButtonRef.current}
+        userInfo={userInfo}
       />
     </div>
   );
