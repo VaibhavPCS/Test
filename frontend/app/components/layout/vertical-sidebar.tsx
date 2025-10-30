@@ -87,11 +87,15 @@ const VerticalSidebar = () => {
             }}
           />
           <div className="flex flex-col">
-            <span className="font-['Inter:SemiBold',sans-serif] text-[14px] leading-[normal] text-black">
-              Mathura Vrindavan
-            </span>
-            <span className="font-['Inter:Regular',sans-serif] text-[12px] leading-[normal] text-[#717182]">
-              Development Authority
+            <span 
+              className="font-['Inter',sans-serif] text-[12px] font-medium leading-normal"
+              style={{ 
+                color: '#0A0A0A',
+                fontWeight: 500,
+                whiteSpace: 'pre-line'
+              }}
+            >
+              Mathura Vrindavan{'\n'}Development Authority
             </span>
           </div>
         </div>
