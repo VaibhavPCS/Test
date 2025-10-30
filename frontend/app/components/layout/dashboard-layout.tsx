@@ -1,7 +1,9 @@
 import React from 'react';
 import { Navigate, Outlet } from 'react-router';
 import { useAuth } from '../../provider/auth-context';
-import Sidebar from './sidebar';
+import { BadgeProvider } from '../../provider/badge-context';
+import VerticalSidebar from './vertical-sidebar';
+import HorizontalNavbar from './horizontal-navbar';
 
 const DashboardLayout = () => {
   const { isAuthenticated, isLoading } = useAuth();
@@ -22,17 +24,25 @@ const DashboardLayout = () => {
   }
 
   return (
-    <div className="h-screen flex bg-gray-50">
-      {/* ✅ Sidebar - No z-index, same axis */}
-      <Sidebar />
-      
-      {/* ✅ Main content - Adjusted to fit properly */}
-      <main className="flex-1 overflow-hidden">
-        <div className="h-full overflow-auto">
-          <Outlet />
+    <BadgeProvider>
+      <div className="h-screen flex bg-[#f1f2f7]">
+        {/* Vertical Sidebar */}
+        <VerticalSidebar />
+
+        {/* Main Content Area */}
+        <div className="flex-1 flex flex-col overflow-hidden">
+          {/* Horizontal Navbar */}
+          <HorizontalNavbar />
+
+          {/* Page Content */}
+          <main className="flex-1 overflow-hidden">
+            <div className="h-full overflow-auto">
+              <Outlet />
+            </div>
+          </main>
         </div>
-      </main>
-    </div>
+      </div>
+    </BadgeProvider>
   );
 };
 

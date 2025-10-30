@@ -21,6 +21,9 @@ export default [
   layout("components/layout/dashboard-layout.tsx", [
     route("dashboard", "routes/dashboard/dashboard.tsx"),
     route("workspace", "routes/workspace/workspace.tsx"),
+    route("meetings", "routes/meetings/meetings.tsx"),
+    route("messages", "routes/messages/messages.tsx"),
+    route("administration", "routes/administration/administration.tsx"),
     route("tasks", "routes/tasks/tasks.tsx"),
     route("members", "routes/members/members.tsx"),
     route("archived", "routes/archived/archived.tsx"),
