@@ -144,9 +144,11 @@ const AuthPanelLayout: React.FC<AuthPanelLayoutProps> = ({ children }) => {
         </div>
 
         {/* Right Panel - Form Content */}
-        <div className="flex-1 flex items-center justify-center">
-          <div className="w-[360px] flex flex-col gap-6">
-            {children}
+        <div className="flex-1 flex items-center justify-center overflow-hidden">
+          <div className="w-[360px] h-full flex flex-col justify-center overflow-y-auto scrollbar-thin scrollbar-thumb-gray-300 scrollbar-track-transparent px-2">
+            <div className="flex flex-col gap-6 py-4">
+              {children}
+            </div>
           </div>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { signUpSchema } from "@/lib/schema";
-import React, { useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -27,6 +27,13 @@ const SignUp = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(false);
+  const [hasErrors, setHasErrors] = useState(false);
+  const [showScrollHint, setShowScrollHint] = useState(false);
+  
+  // Refs for scroll management
+  const formContainerRef = useRef<HTMLDivElement>(null);
+  const submitButtonRef = useRef<HTMLButtonElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const form = useForm<SignupFormData>({
     resolver: zodResolver(signUpSchema),
@@ -39,6 +46,72 @@ const SignUp = () => {
   });
 
   const { mutate, isPending } = useSignUpMutation();
+
+  // Smooth scroll function with animation
+  const smoothScrollToElement = (element: HTMLElement, duration: number = 400) => {
+    const container = formContainerRef.current;
+    if (!container || !element) return;
+
+    const containerRect = container.getBoundingClientRect();
+    const elementRect = element.getBoundingClientRect();
+    const scrollTop = container.scrollTop;
+    const targetScrollTop = scrollTop + elementRect.bottom - containerRect.bottom + 20; // 20px padding
+
+    if (targetScrollTop <= scrollTop) return; // Element is already visible
+
+    const startTime = performance.now();
+    const startScrollTop = scrollTop;
+    const distance = targetScrollTop - startScrollTop;
+
+    const animateScroll = (currentTime: number) => {
+      const elapsed = currentTime - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      
+      // Easing function for smooth animation
+      const easeInOutCubic = (t: number) => t < 0.5 ? 4 * t * t * t : (t - 1) * (2 * t - 2) * (2 * t - 2) + 1;
+      const easedProgress = easeInOutCubic(progress);
+      
+      container.scrollTop = startScrollTop + distance * easedProgress;
+      
+      if (progress < 1) {
+        requestAnimationFrame(animateScroll);
+      }
+    };
+
+    requestAnimationFrame(animateScroll);
+  };
+
+  // Check if content overflows and show scroll hint
+  const checkOverflow = () => {
+    const container = formContainerRef.current;
+    if (!container) return;
+    
+    const isOverflowing = container.scrollHeight > container.clientHeight;
+    setShowScrollHint(isOverflowing && hasErrors);
+  };
+
+  // Error detection effect
+  useEffect(() => {
+    const errors = form.formState.errors;
+    const hasFormErrors = Object.keys(errors).length > 0;
+    setHasErrors(hasFormErrors);
+
+    if (hasFormErrors && submitButtonRef.current) {
+      // Small delay to allow error messages to render
+      setTimeout(() => {
+        smoothScrollToElement(submitButtonRef.current!, 400);
+        checkOverflow();
+      }, 100);
+    }
+  }, [form.formState.errors]);
+
+  // Check overflow on mount and resize
+  useEffect(() => {
+    checkOverflow();
+    const handleResize = () => checkOverflow();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [hasErrors]);
 
   const handleOnSubmit = (values: SignupFormData) => {
     mutate(values, {
@@ -70,7 +143,7 @@ const SignUp = () => {
 
   return (
     <AuthPanelLayout>
-      <div className="flex flex-col gap-6">
+      <div ref={formContainerRef} className="flex flex-col gap-6 relative">
         {/* Header */}
         <div className="flex flex-col gap-2.5">
           <h1 className="text-2xl font-semibold text-[#1a1a1a]">Create an Account</h1>
@@ -80,7 +153,7 @@ const SignUp = () => {
         {/* Form */}
         <div className="flex flex-col gap-5">
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(handleOnSubmit)} noValidate className="flex flex-col gap-4">
+            <form ref={formRef} onSubmit={form.handleSubmit(handleOnSubmit)} noValidate className="flex flex-col gap-4">
               {/* Email Field */}
               <FormField
                 control={form.control}
@@ -205,6 +278,7 @@ const SignUp = () => {
 
               {/* Create Account Button */}
               <Button
+                ref={submitButtonRef}
                 type="submit"
                 disabled={isPending}
                 className="w-full h-10 bg-[#007aff] hover:bg-[#0066cc] text-white font-bold text-[15px] rounded-md px-6 py-2.5 transition-colors"
@@ -225,6 +299,26 @@ const SignUp = () => {
             Sign in
           </Link>
         </div>
+
+        {/* Scroll Hint Indicator */}
+        {showScrollHint && (
+          <div className="absolute bottom-2 right-2 flex flex-col items-center gap-1 text-gray-500 animate-bounce">
+            <div className="text-xs font-medium">Scroll down</div>
+            <svg 
+              className="w-4 h-4" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                strokeWidth={2} 
+                d="M19 14l-7 7m0 0l-7-7m7 7V3" 
+              />
+            </svg>
+          </div>
+        )}
       </div>
     </AuthPanelLayout>
   );
