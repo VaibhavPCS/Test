@@ -14,24 +14,48 @@ const createProject = async (req, res) => {
       return res.status(400).json({ message: "No active workspace found" });
     }
 
+    // Parse categories if it's a string (from multipart/form-data)
+    let parsedCategories = categories;
+    if (typeof categories === 'string') {
+      try {
+        parsedCategories = JSON.parse(categories);
+      } catch (error) {
+        return res.status(400).json({ message: "Invalid categories format" });
+      }
+    }
+
     // Verify all category members exist and are in workspace
-    for (const category of categories) {
+    for (const category of parsedCategories) {
       for (const member of category.members) {
-        const memberUser = await User.findOne({ 
+        const memberUser = await User.findOne({
           email: member.email,
-          'workspaces.workspaceId': user.currentWorkspace 
+          'workspaces.workspaceId': user.currentWorkspace
         });
-        
+
         if (!memberUser) {
-          return res.status(400).json({ 
-            message: `User ${member.email} is not found or not in workspace` 
+          return res.status(400).json({
+            message: `User ${member.email} is not found or not in workspace`
           });
         }
-        
+
         // Replace email with userId
         member.userId = memberUser._id;
         delete member.email;
       }
+    }
+
+    // Handle file attachments
+    const attachments = [];
+    if (req.files && req.files.length > 0) {
+      req.files.forEach(file => {
+        attachments.push({
+          filename: file.filename,
+          originalName: file.originalname,
+          path: file.path,
+          size: file.size,
+          mimeType: file.mimetype
+        });
+      });
     }
 
     // Create project
@@ -43,7 +67,8 @@ const createProject = async (req, res) => {
       endDate,
       workspace: user.currentWorkspace,
       creator: userId,
-      categories
+      categories: parsedCategories,
+      attachments
     });
 
     const populatedProject = await Project.findById(project._id)

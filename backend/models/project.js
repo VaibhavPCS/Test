@@ -79,6 +79,30 @@ const projectSchema = new Schema(
       type: Boolean,
       default: true,
     },
+    attachments: [{
+      filename: {
+        type: String,
+        required: true,
+      },
+      originalName: {
+        type: String,
+        required: true,
+      },
+      path: {
+        type: String,
+        required: true,
+      },
+      size: {
+        type: Number,
+      },
+      mimeType: {
+        type: String,
+      },
+      uploadedAt: {
+        type: Date,
+        default: Date.now,
+      }
+    }],
   },
   {
     timestamps: true,

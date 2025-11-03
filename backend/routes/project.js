@@ -1,5 +1,6 @@
 import express from 'express';
 import { authenticateToken } from '../libs/auth-middleware.js';
+import { uploadProjects, handleUploadErrors } from '../libs/upload-middleware.js';
 import {
   createProject,
   getWorkspaceProjects,
@@ -192,7 +193,7 @@ router.get('/members', getWorkspaceMembers);
  *       401:
  *         description: Unauthorized.
  */
-router.post('/', createProject);
+router.post('/', uploadProjects.array('attachments', 5), handleUploadErrors, createProject);
 
 /**
  * @swagger
