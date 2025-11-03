@@ -1,302 +1,376 @@
-import React, { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../../provider/auth-context";
-import { Navigate } from "react-router";
-import { postData, fetchData } from "@/lib/fetch-util";
+import { Navigate, useNavigate } from "react-router";
+import { fetchData, postData } from "@/lib/fetch-util";
 import {
   Calendar,
   Clock,
   User,
   Filter,
-  SortDesc,
-  AlertCircle,
-  CheckCircle2,
-  PlayCircle,
-  Eye,
-  BarChart3,
-  List,
-  TrendingUp,
-  Target,
-  Activity,
-  Clock4,
-  TableIcon,
-  BarChart2,
-  Users,
   Search,
-  RefreshCw,
-  Download,
-  Settings2,
-  Loader2,
-  Plus,
   ChevronDown,
-  ArrowUpDown,
+  Loader2,
+  Building2,
+  Folder,
+  ArrowRight,
+  Eye,
 } from "lucide-react";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Calendar as CalendarComponent } from "@/components/ui/calendar";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { format } from "date-fns";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  type ChartConfig,
-  ChartContainer,
-  ChartTooltip,
-  ChartTooltipContent,
-} from "@/components/ui/chart";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
+import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
-import { Badge } from "@/components/ui/badge";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
-import { Label } from "@/components/ui/label";
 import {
   PieChart,
   Pie,
   Cell,
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
   ResponsiveContainer,
+  Tooltip as RechartsTooltip,
 } from "recharts";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useNavigate } from 'react-router';
+import { StatusBadge } from "@/components/ui/status-badge";
 
-const debounce = (func: Function, delay: number) => {
-  let timeoutId: NodeJS.Timeout;
-  return (...args: any[]) => {
-    clearTimeout(timeoutId);
-    timeoutId = setTimeout(() => func.apply(null, args), delay);
-  };
-};
-
-interface Task {
-  _id: string;
-  title: string;
-  description: string;
-  status: "todo" | "in_progress" | "review" | "done";
-  priority: "low" | "medium" | "high" | "urgent";
-  dueDate: string;
-  createdAt: string;
-  assignees: Array<{ _id: string; name: string; email: string }>;
-  creator: { _id: string; name: string; email: string };
-  workspace: { _id: string; name: string };
-}
-
-interface AllWorkspaceTask {
-  serialNumber: number;
-  _id: string;
-  title: string;
-  dueDate: string;
-  assignedTo: { _id: string; name: string; email: string };
-  project: { _id: string; title: string };
-  status: string;
-  priority: string;
-  creator: { _id: string; name: string; email: string };
-  createdAt: string;
-  completedAt?: string;
-  handoverNotes?: string;
-}
-
-interface Analytics {
-  totalTasks: number;
-  completedTasks: number;
-  completionRate: number;
-  averageDuration: number;
-  velocity: {
-    weekly: number;
-    monthly: number;
-  };
-  overdueTasks: number;
-  overduePercentage: number;
-  statusDistribution: {
-    "to-do": number;
-    "in-progress": number;
-    done: number;
-  };
-  priorityDistribution: {
-    low: number;
-    medium: number;
-    high: number;
-  };
-  completionTimeByPriority: {
-    low: number;
-    medium: number;
-    high: number;
-  };
-}
-
-interface ProjectAnalytics {
-  overall: Analytics;
-  categories: { [categoryName: string]: Analytics };
-}
+// ==================== INTERFACES ====================
 
 interface Workspace {
   _id: string;
   name: string;
-  description: string;
+  description?: string;
 }
 
-interface UserWorkspace {
-  workspaceId: Workspace;
-  role: string;
-  joinedAt: string;
+interface ProjectStatistics {
+  totalProjects: number;
+  ongoingProjects: number;
+  completedProjects: number;
+  proposedProjects: number;
 }
+
+type ProjectStatus = 'Planning' | 'In Progress' | 'On Hold' | 'Completed' | 'Cancelled';
 
 interface Project {
   _id: string;
+  propertyId?: string;
   title: string;
-  description: string;
+  description?: string;
+  status: ProjectStatus;
+  startDate: string;
+  endDate: string;
+  creator?: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  projectType?: string;
+  department?: {
+    name: string;
+  };
+  categories?: Array<{
+    name: string;
+    members: Array<{
+      userId: {
+        _id: string;
+        name: string;
+        email: string;
+      };
+      role: string;
+    }>;
+  }>;
+  createdAt: string;
+  updatedAt: string;
 }
 
-interface UserInfo {
-  id: string;
-  name: string;
-  email: string;
-  role: string;
+interface Task {
+  _id: string;
+  title: string;
+  description?: string;
+  status: "to-do" | "in-progress" | "done";
+  priority: "low" | "medium" | "high" | "urgent";
+  dueDate: string;
+  assignedTo?: { _id: string; name: string; email: string };
+  project?: { _id: string; title: string };
+  creator?: { _id: string; name: string; email: string };
+  createdAt: string;
+  serialNumber?: number;
 }
+
+// ==================== MAIN COMPONENT ====================
 
 const Dashboard = () => {
   const { isAuthenticated, isLoading } = useAuth();
-  const [tasks, setTasks] = useState<Task[]>([]);
+  const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
-  const [sortBy, setSortBy] = useState("createdAt");
-  const [sortOrder, setSortOrder] = useState("desc");
-  const [statusFilter, setStatusFilter] = useState("all_status");
-  const [priorityFilter, setPriorityFilter] = useState("all_priority");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
+  const [projectStats, setProjectStats] = useState<ProjectStatistics>({
+    totalProjects: 0,
+    ongoingProjects: 0,
+    completedProjects: 0,
+    proposedProjects: 0,
+  });
+  const [recentProjects, setRecentProjects] = useState<Project[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [filteredTasks, setFilteredTasks] = useState<Task[]>([]);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
+  const [currentWorkspace, setCurrentWorkspace] = useState<Workspace | null>(null);
+  const [projectTypeFilter, setProjectTypeFilter] = useState("all");
+  const [dateRangeFilter, setDateRangeFilter] = useState<{ start: string; end: string }>({ start: "", end: "" });
+  const [taskStatusFilter, setTaskStatusFilter] = useState("all");
+  const [taskSearchQuery, setTaskSearchQuery] = useState<string>("");
+  // Calendar state for pie chart filtering
+  const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth()); // 0-11
+  const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [monthlyProjectStats, setMonthlyProjectStats] = useState({
+    planning: 0,
+    inProgress: 0,
+    onHold: 0,
+    completed: 0,
+    total: 0,
+  });
 
-  const fetchUserInfo = useCallback(async () => {
+  // ==================== DATA FETCHING ====================
+
+  const fetchWorkspaces = useCallback(async () => {
     try {
-      const response = await fetchData("/auth/me");
-      setUserInfo(response.user || response);
+      const response = await fetchData("/workspace");
+      // Extract workspace data from the nested structure
+      const workspaceList = response.workspaces?.map((w: any) => w.workspaceId).filter(Boolean) || [];
+      setWorkspaces(workspaceList);
+      setCurrentWorkspace(response.currentWorkspace || null);
+      // Store current workspace in localStorage for API calls
+      if (response.currentWorkspace) {
+        localStorage.setItem("currentWorkspaceId", response.currentWorkspace._id);
+      }
     } catch (error) {
-      toast.error("Failed to load user data");
+      console.error("Error fetching workspaces:", error);
+      toast.error("Failed to load workspaces");
     }
   }, []);
+
+  const handleSwitchWorkspace = async (workspaceId: string) => {
+    try {
+      await postData("/workspace/switch", { workspaceId });
+      // Update localStorage
+      localStorage.setItem("currentWorkspaceId", workspaceId);
+      // Update current workspace state
+      const selectedWorkspace = workspaces.find(w => w._id === workspaceId);
+      setCurrentWorkspace(selectedWorkspace || null);
+      // Refresh data including pie chart for current month
+      await Promise.all([
+        fetchProjectStatistics(),
+        fetchRecentProjects(),
+        fetchTasks(),
+        fetchMonthlyProjectStats(selectedMonth, selectedYear),
+      ]);
+    } catch (error) {
+      console.error("Error switching workspace:", error);
+      toast.error("Failed to switch workspace");
+    }
+  };
+
+  const fetchProjectStatistics = useCallback(async () => {
+    try {
+      const response = await fetchData("/project/statistics/overview");
+      setProjectStats(response);
+    } catch (error) {
+      console.error("Error fetching project statistics:", error);
+      toast.error("Failed to load project statistics");
+      // Fallback to empty stats on error
+      setProjectStats({
+        totalProjects: 0,
+        ongoingProjects: 0,
+        completedProjects: 0,
+        proposedProjects: 0,
+      });
+    }
+  }, []);
+
+  // Fetch monthly project statistics for pie chart
+  const fetchMonthlyProjectStats = useCallback(async (month: number, year: number) => {
+    try {
+      // Fetch all projects without limit to filter by month
+      const response = await fetchData("/project/recent?limit=1000&sortBy=startDate");
+      const allProjects = response.projects || [];
+
+      // Filter projects that are active in the selected month
+      const monthStart = new Date(year, month, 1);
+      const monthEnd = new Date(year, month + 1, 0); // Last day of the month
+
+      const projectsInMonth = allProjects.filter((project: Project) => {
+        const projectStart = new Date(project.startDate);
+        const projectEnd = new Date(project.endDate);
+
+        // Check if project overlaps with selected month
+        return projectStart <= monthEnd && projectEnd >= monthStart;
+      });
+
+      // Calculate stats by status
+      const stats = {
+        planning: 0,
+        inProgress: 0,
+        onHold: 0,
+        completed: 0,
+        total: projectsInMonth.length,
+      };
+
+      projectsInMonth.forEach((project: Project) => {
+        const status = project.status.toLowerCase();
+        if (status === "planning") {
+          stats.planning++;
+        } else if (status === "in progress" || status === "ongoing") {
+          stats.inProgress++;
+        } else if (status === "on hold") {
+          stats.onHold++;
+        } else if (status === "completed") {
+          stats.completed++;
+        }
+      });
+
+      setMonthlyProjectStats(stats);
+    } catch (error) {
+      console.error("Error fetching monthly project statistics:", error);
+      setMonthlyProjectStats({
+        planning: 0,
+        inProgress: 0,
+        onHold: 0,
+        completed: 0,
+        total: 0,
+      });
+    }
+  }, []);
+
+  const fetchRecentProjects = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({
+        limit: "25",
+        sortBy: "startDate",
+        ...(projectTypeFilter !== "all" && { projectType: projectTypeFilter }),
+      });
+
+      const response = await fetchData(`/project/recent?${params}`);
+      let projects = response.projects || [];
+
+      // Apply client-side date filtering based on startDate
+      if (dateRangeFilter.start || dateRangeFilter.end) {
+        projects = projects.filter((project: Project) => {
+          const startDate = new Date(project.startDate);
+          const filterStartDate = dateRangeFilter.start ? new Date(dateRangeFilter.start) : null;
+          const filterEndDate = dateRangeFilter.end ? new Date(dateRangeFilter.end) : null;
+
+          if (filterStartDate && filterEndDate) {
+            return startDate >= filterStartDate && startDate <= filterEndDate;
+          } else if (filterStartDate) {
+            return startDate >= filterStartDate;
+          } else if (filterEndDate) {
+            return startDate <= filterEndDate;
+          }
+          return true;
+        });
+      }
+
+      setRecentProjects(projects);
+    } catch (error) {
+      console.error("Error fetching recent projects:", error);
+      toast.error("Failed to load recent projects");
+      // Fallback to empty array on error
+      setRecentProjects([]);
+    }
+  }, [projectTypeFilter, dateRangeFilter]);
 
   const fetchTasks = useCallback(async () => {
     try {
-      const params = new URLSearchParams({
-        sortBy,
-        sortOrder,
-        ...(statusFilter !== "all_status" && { status: statusFilter }),
-        ...(priorityFilter !== "all_priority" && { priority: priorityFilter }),
-        ...(searchQuery && { search: searchQuery }),
-      });
-
-      const response = await fetchData(`/workspace/tasks?${params}`);
-      setTasks(response.tasks || []);
-    } catch (error) {
-      toast.error("Failed to load tasks");
-    } finally {
-      setLoading(false);
-    }
-  }, [sortBy, sortOrder, statusFilter, priorityFilter, searchQuery]);
-
-  const fetchAllWorkspaceTasks = useCallback(async () => {
-    try {
       const response = await fetchData("/workspace/all-tasks");
-      return response || { tasks: [], totalTasks: 0 };
+      const tasksData = response.tasks || [];
+      setTasks(tasksData);
     } catch (error) {
-      toast.error("Failed to load workspace tasks");
-      return { tasks: [], totalTasks: 0 };
+      console.error("Error fetching tasks:", error);
+      toast.error("Failed to load tasks");
+      setTasks([]);
     }
   }, []);
 
-  const hasAnalyticsAccess = useMemo(() => {
-    return (
-      userInfo && (userInfo.role === "admin" || userInfo.role === "super-admin")
-    );
-  }, [userInfo]);
+  // Filter tasks based on status and search query
+  useEffect(() => {
+    let filtered = tasks;
 
-  const getStatusIcon = useCallback((status: string) => {
-    switch (status) {
-      case "todo":
-      case "to-do":
-        return <Clock className="w-4 h-4 text-gray-500" />;
-      case "in_progress":
-      case "in-progress":
-        return <PlayCircle className="w-4 h-4 text-blue-500" />;
-      case "review":
-        return <Eye className="w-4 h-4 text-orange-500" />;
-      case "done":
-        return <CheckCircle2 className="w-4 h-4 text-green-500" />;
-      default:
-        return <Clock className="w-4 h-4 text-gray-500" />;
+    // Filter by status
+    if (taskStatusFilter !== "all") {
+      filtered = filtered.filter(task => task.status === taskStatusFilter);
     }
-  }, []);
 
-  const getPriorityColor = useCallback((priority: string) => {
-    switch (priority) {
-      case "low":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "medium":
-        return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case "high":
-        return "bg-orange-100 text-orange-800 border-orange-200";
-      case "urgent":
-        return "bg-red-100 text-red-800 border-red-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
+    // Filter by search query
+    if (taskSearchQuery.trim()) {
+      const query = taskSearchQuery.toLowerCase();
+      filtered = filtered.filter(task => 
+        task.title.toLowerCase().includes(query) ||
+        (task.description && task.description.toLowerCase().includes(query)) ||
+        (task.assignedTo && task.assignedTo.name.toLowerCase().includes(query)) ||
+        (task.project && task.project.title.toLowerCase().includes(query))
+      );
     }
-  }, []);
 
-  const getStatusColor = useCallback((status: string) => {
-    switch (status) {
-      case "done":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "in-progress":
-        return "bg-blue-100 text-blue-800 border-blue-200";
-      case "to-do":
-        return "bg-gray-100 text-gray-800 border-gray-200";
-      case "review":
-        return "bg-orange-100 text-orange-800 border-orange-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  }, []);
-
-  const debouncedSearch = useCallback(
-    debounce((query: string) => {
-      setSearchQuery(query);
-    }, 300),
-    []
-  );
+    setFilteredTasks(filtered);
+  }, [tasks, taskStatusFilter, taskSearchQuery]);
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetchUserInfo();
-      fetchTasks();
+      const loadData = async () => {
+        setLoading(true);
+        await Promise.all([
+          fetchWorkspaces(),
+          fetchProjectStatistics(),
+          fetchRecentProjects(),
+          fetchTasks(),
+          fetchMonthlyProjectStats(selectedMonth, selectedYear),
+        ]);
+        setLoading(false);
+      };
+      loadData();
     }
-  }, [isAuthenticated, fetchUserInfo, fetchTasks]);
+  }, [isAuthenticated, fetchWorkspaces, fetchProjectStatistics, fetchRecentProjects, fetchTasks, fetchMonthlyProjectStats, selectedMonth, selectedYear]);
+
+  // ==================== HELPER FUNCTIONS ====================
+
+  const calculateDaysBetween = (startDate: string, endDate: string): number => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+    const diffTime = Math.abs(end.getTime() - start.getTime());
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    return diffDays;
+  };
+
+  const formatDate = (dateString: string): string => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  };
+
+  const handleViewProject = (projectId: string) => {
+    navigate(`/workspace/projects/${projectId}`);
+  };
+
+  // Format month and year for display
+  const formatMonthYear = (month: number, year: number): string => {
+    const monthNames = [
+      "January", "February", "March", "April", "May", "June",
+      "July", "August", "September", "October", "November", "December"
+    ];
+    return `${monthNames[month]} ${year}`;
+  };
+
+  // Handle month change
+  const handleMonthChange = async (month: number, year: number) => {
+    setSelectedMonth(month);
+    setSelectedYear(year);
+    setShowMonthPicker(false);
+    await fetchMonthlyProjectStats(month, year);
+  };
+
+  // ==================== RENDER GUARDS ====================
 
   if (isLoading) {
     return (
@@ -313,1210 +387,783 @@ const Dashboard = () => {
     return <Navigate to="/sign-in" />;
   }
 
-  const TasksContent = () => {
-    const [allTasks, setAllTasks] = useState<AllWorkspaceTask[]>([]);
-    const [userRole, setUserRole] = useState("");
-    const [galleryLoading, setGalleryLoading] = useState(true);
-    const [viewMode, setViewMode] = useState<"grid" | "table">("grid");
+  // ==================== PIE CHART DATA ====================
 
-    useEffect(() => {
-      const loadAllTasks = async () => {
-        setGalleryLoading(true);
-        try {
-          const data = await fetchAllWorkspaceTasks();
-          setAllTasks(data.tasks || []);
-          setUserRole(data.userRole || "");
-        } catch (error) {
-        } finally {
-          setGalleryLoading(false);
-        }
-      };
+  const chartData = [
+    {
+      name: "Completed",
+      value: monthlyProjectStats.completed,
+      fill: "#8a55d2",
+    },
+    {
+      name: "Planning",
+      value: monthlyProjectStats.planning,
+      fill: "#f2761b",
+    },
+    {
+      name: "In Progress",
+      value: monthlyProjectStats.inProgress,
+      fill: "#59c3c3",
+    },
+    {
+      name: "On Hold",
+      value: monthlyProjectStats.onHold,
+      fill: "#ff6b6b",
+    },
+  ];
 
-      loadAllTasks();
-    }, []);
-
-    return (
-      <div className="space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              Task Management
-            </h2>
-            <p className="text-gray-600 mt-1">
-              Manage and track all your workspace tasks
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {userRole && (
-              <Badge variant="secondary" className="text-xs">
-                <Users className="w-3 h-3 mr-1" />
-                {userRole}
-              </Badge>
-            )}
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                fetchTasks();
-                const loadAllTasks = async () => {
-                  setGalleryLoading(true);
-                  const data = await fetchAllWorkspaceTasks();
-                  setAllTasks(data.tasks || []);
-                  setGalleryLoading(false);
-                };
-                loadAllTasks();
-              }}
-              className="flex items-center gap-2"
-            >
-              <RefreshCw className="w-4 h-4" />
-              Refresh
-            </Button>
-          </div>
-        </div>
-
-        <Card>
-          <CardContent className="p-6">
-            <div className="flex flex-col lg:flex-row gap-4 items-start lg:items-center">
-              <div className="flex-1 min-w-0">
-                <div className="relative">
-                  <Search className="absolute left-3 top-3 h-4 w-4 text-gray-400" />
-                  <Input
-                    placeholder="Search tasks..."
-                    className="pl-10"
-                    onChange={(e) => debouncedSearch(e.target.value)}
-                  />
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                <Select value={statusFilter} onValueChange={setStatusFilter}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="All Status" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all_status">All Status</SelectItem>
-                    <SelectItem value="todo">To Do</SelectItem>
-                    <SelectItem value="in_progress">In Progress</SelectItem>
-                    <SelectItem value="review">Review</SelectItem>
-                    <SelectItem value="done">Done</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select
-                  value={priorityFilter}
-                  onValueChange={setPriorityFilter}
-                >
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="All Priority" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all_priority">All Priority</SelectItem>
-                    <SelectItem value="low">Low</SelectItem>
-                    <SelectItem value="medium">Medium</SelectItem>
-                    <SelectItem value="high">High</SelectItem>
-                    <SelectItem value="urgent">Urgent</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Select value={sortBy} onValueChange={setSortBy}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue placeholder="Sort by" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="createdAt">Created Date</SelectItem>
-                    <SelectItem value="dueDate">Due Date</SelectItem>
-                    <SelectItem value="title">Title</SelectItem>
-                    <SelectItem value="priority">Priority</SelectItem>
-                    <SelectItem value="status">Status</SelectItem>
-                  </SelectContent>
-                </Select>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() =>
-                    setSortOrder(sortOrder === "asc" ? "desc" : "asc")
-                  }
-                  className="flex items-center gap-1"
-                >
-                  <ArrowUpDown className="w-4 h-4" />
-                  {sortOrder === "asc" ? "Asc" : "Desc"}
-                </Button>
-              </div>
-
-              <div className="flex items-center border rounded-lg p-1">
-                <Button
-                  variant={viewMode === "grid" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setViewMode("grid")}
-                  className="h-8 w-8 p-0"
-                  title="Grid View"
-                >
-                  <BarChart2 className="w-4 h-4" />
-                </Button>
-                <Button
-                  variant={viewMode === "table" ? "default" : "ghost"}
-                  size="sm"
-                  onClick={() => setViewMode("table")}
-                  className="h-8 w-8 p-0"
-                  title="Table View"
-                >
-                  <TableIcon className="w-4 h-4" />
-                </Button>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="p-3 rounded-lg bg-blue-100">
-                  <List className="w-6 h-6 text-blue-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">
-                    Total Tasks
-                  </p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {allTasks.length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="p-3 rounded-lg bg-green-100">
-                  <CheckCircle2 className="w-6 h-6 text-green-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Completed</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {allTasks.filter((task) => task.status === "done").length}
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="p-3 rounded-lg bg-orange-100">
-                  <PlayCircle className="w-6 h-6 text-orange-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">
-                    In Progress
-                  </p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {
-                      allTasks.filter((task) => task.status === "in-progress")
-                        .length
-                    }
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardContent className="p-6">
-              <div className="flex items-center">
-                <div className="p-3 rounded-lg bg-red-100">
-                  <AlertCircle className="w-6 h-6 text-red-600" />
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-gray-600">Overdue</p>
-                  <p className="text-2xl font-bold text-gray-900">
-                    {
-                      allTasks.filter(
-                        (task) =>
-                          new Date(task.dueDate) < new Date() &&
-                          task.status !== "done"
-                      ).length
-                    }
-                  </p>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-        {(userInfo?.role === "admin" || userInfo?.role === "super-admin") && (
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <TableIcon className="w-5 h-5" />
-                All Workspace Tasks
-              </CardTitle>
-              <CardDescription>
-                Complete overview of all tasks in the workspace (
-                {allTasks.length} total)
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              {galleryLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="text-center">
-                    <Loader2 className="w-8 h-8 animate-spin text-blue-500 mx-auto mb-4" />
-                    <p className="text-gray-600">Loading workspace tasks...</p>
-                  </div>
-                </div>
-              ) : allTasks.length === 0 ? (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                    <CheckCircle2 className="w-8 h-8 text-gray-400" />
-                  </div>
-                  <h3 className="text-lg font-medium text-gray-900 mb-2">
-                    No Tasks Found
-                  </h3>
-                  <p className="text-gray-500">
-                    No tasks are available in this workspace yet.
-                  </p>
-                  <Button className="mt-4" size="sm">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Create First Task
-                  </Button>
-                </div>
-              ) : (
-                <ScrollArea className="h-96 w-full">
-                  <div className="overflow-x-auto">
-                    <table className="w-full">
-                      <thead>
-                        <tr className="border-b bg-gray-50/50">
-                          <th className="text-left py-3 px-4 font-medium text-gray-900 text-sm">
-                            S.No
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium text-gray-900 text-sm">
-                            Task
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium text-gray-900 text-sm">
-                            Assignee
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium text-gray-900 text-sm">
-                            Project
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium text-gray-900 text-sm">
-                            Status
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium text-gray-900 text-sm">
-                            Priority
-                          </th>
-                          <th className="text-left py-3 px-4 font-medium text-gray-900 text-sm">
-                            Due Date
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {allTasks.map((task) => (
-                          <tr
-                            key={task._id}
-                            className="border-b hover:bg-gray-50/50 transition-colors cursor-pointer"
-                            onClick={() =>
-                              (window.location.href = `/task/${task._id}`)
-                            }
-                          >
-                            <td className="py-3 px-4 text-sm font-medium text-gray-600">
-                              {task.serialNumber}
-                            </td>
-                            <td className="py-3 px-4 max-w-xs">
-                              <div
-                                className="font-medium text-gray-900 truncate"
-                                title={task.title}
-                              >
-                                {task.title}
-                              </div>
-                            </td>
-                            <td className="py-3 px-4">
-                              <div className="flex items-center gap-2">
-                                <Avatar className="w-6 h-6">
-                                  <AvatarFallback className="text-xs bg-blue-100 text-blue-600">
-                                    {task.assignedTo?.name?.charAt(0) || "U"}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <span className="text-sm truncate">
-                                  {task.assignedTo?.name || "Unassigned"}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="py-3 px-4 text-sm text-gray-600 truncate">
-                              {task.project?.title || "No Project"}
-                            </td>
-                            <td className="py-3 px-4">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-xs flex items-center gap-1",
-                                  getStatusColor(task.status)
-                                )}
-                              >
-                                {getStatusIcon(task.status)}
-                                <span className="capitalize">
-                                  {task.status.replace("-", " ")}
-                                </span>
-                              </Badge>
-                            </td>
-                            <td className="py-3 px-4">
-                              <Badge
-                                variant="outline"
-                                className={cn(
-                                  "text-xs capitalize",
-                                  getPriorityColor(task.priority)
-                                )}
-                              >
-                                {task.priority}
-                              </Badge>
-                            </td>
-                            <td className="py-3 px-4 text-sm text-gray-600">
-                              {task.dueDate
-                                ? new Date(task.dueDate).toLocaleDateString()
-                                : "No due date"}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </ScrollArea>
-              )}
-            </CardContent>
-          </Card>
-        )}
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <User className="w-5 h-5" />
-              My Tasks ({tasks.length})
-            </CardTitle>
-            <CardDescription>
-              Tasks assigned specifically to you
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            {tasks.length === 0 ? (
-              <div className="text-center py-12">
-                <div className="w-16 h-16 bg-green-100 rounded-lg flex items-center justify-center mx-auto mb-4">
-                  <CheckCircle2 className="w-8 h-8 text-green-600" />
-                </div>
-                <h3 className="text-lg font-medium text-gray-900 mb-2">
-                  All Caught Up! 🎉
-                </h3>
-                <p className="text-gray-500 mb-4">
-                  You don't have any tasks assigned right now.
-                </p>
-                <Badge
-                  variant="secondary"
-                  className="bg-green-100 text-green-800"
-                >
-                  Great job staying organized!
-                </Badge>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {tasks.map((task) => (
-                  <Card
-                    key={task._id}
-                    className="hover:shadow-md transition-all duration-200 cursor-pointer border-l-4 border-l-blue-500"
-                  >
-                    <CardHeader className="pb-3">
-                      <div className="flex items-start justify-between">
-                        <div className="flex items-center gap-2">
-                          {getStatusIcon(task.status)}
-                          <Badge
-                            variant="outline"
-                            className={cn(
-                              "text-xs",
-                              getStatusColor(task.status)
-                            )}
-                          >
-                            {task.status.replace("_", " ")}
-                          </Badge>
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className={cn(
-                            "text-xs",
-                            getPriorityColor(task.priority)
-                          )}
-                        >
-                          {task.priority}
-                        </Badge>
-                      </div>
-                    </CardHeader>
-                    <CardContent className="pt-0">
-                      <h3 className="font-semibold text-gray-900 mb-2 line-clamp-2">
-                        {task.title}
-                      </h3>
-                      {task.description && (
-                        <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                          {task.description}
-                        </p>
-                      )}
-                      <div className="space-y-2 text-sm text-gray-500">
-                        <div className="flex items-center gap-2">
-                          <Calendar className="w-4 h-4" />
-                          <span>
-                            Created:{" "}
-                            {new Date(task.createdAt).toLocaleDateString()}
-                          </span>
-                        </div>
-                        {task.dueDate && (
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4" />
-                            <span>
-                              Due: {new Date(task.dueDate).toLocaleDateString()}
-                            </span>
-                          </div>
-                        )}
-                        <div className="flex items-center gap-2">
-                          <User className="w-4 h-4" />
-                          <span>By: {task.creator.name}</span>
-                        </div>
-                      </div>
-                      {task.assignees && task.assignees.length > 1 && (
-                        <div className="mt-3 pt-3 border-t">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-500">Team:</span>
-                            <div className="flex -space-x-1">
-                              {task.assignees.slice(0, 3).map((assignee) => (
-                                <Avatar
-                                  key={assignee._id}
-                                  className="w-6 h-6 border-2 border-white"
-                                >
-                                  <AvatarFallback className="text-xs bg-blue-100 text-blue-600">
-                                    {assignee.name.charAt(0)}
-                                  </AvatarFallback>
-                                </Avatar>
-                              ))}
-                              {task.assignees.length > 3 && (
-                                <div className="w-6 h-6 bg-gray-100 rounded-full flex items-center justify-center border-2 border-white">
-                                  <span className="text-xs font-medium text-gray-600">
-                                    +{task.assignees.length - 3}
-                                  </span>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      </div>
-    );
-  };
-
-  const AnalyticsContent = () => {
-    const [workspaces, setWorkspaces] = useState<UserWorkspace[]>([]);
-    const [projects, setProjects] = useState<Project[]>([]);
-    const [selectedWorkspace, setSelectedWorkspace] =
-      useState("select_workspace");
-    const [selectedProject, setSelectedProject] = useState("select_project");
-    const [analytics, setAnalytics] = useState<ProjectAnalytics | null>(null);
-    const [analyticsLoading, setAnalyticsLoading] = useState(false);
-    const [startDate, setStartDate] = useState<Date | undefined>(undefined);
-    const [endDate, setEndDate] = useState<Date | undefined>(undefined);
-    const [projectCategories, setProjectCategories] = useState<string[]>([]);
-    const [viewMode, setViewMode] = useState<"chart" | "table">("chart");
-
-    const fetchWorkspaces = useCallback(async () => {
-      try {
-        const response = await fetchData("/workspace");
-
-        if (response.workspaces) {
-          setWorkspaces(response.workspaces);
-        }
-      } catch (error) {
-        toast.error("Failed to load workspaces");
-      }
-    }, []);
-
-    const fetchProjects = useCallback(async (workspaceId: string) => {
-      if (workspaceId === "select_workspace") {
-        setProjects([]);
-        return;
-      }
-
-      try {
-        await postData("/workspace/switch", { workspaceId });
-
-        const response = await fetchData("/project");
-
-        if (response.projects) {
-          setProjects(response.projects);
-        } else {
-          setProjects([]);
-        }
-      } catch (error) {
-        toast.error("Failed to load projects");
-        setProjects([]);
-      }
-    }, []);
-
-    const fetchProjectAnalytics = useCallback(
-      async (projectId: string) => {
-        if (projectId === "select_project") {
-          setAnalytics(null);
-          return;
-        }
-
-        setAnalyticsLoading(true);
-        try {
-          const params = new URLSearchParams();
-          if (startDate)
-            params.append("startDate", startDate.toISOString().split("T")[0]);
-          if (endDate)
-            params.append("endDate", endDate.toISOString().split("T")[0]);
-
-          const response = await fetchData(
-            `/analytics/project/${projectId}?${params}`
-          );
-
-          if (response.analytics) {
-            setAnalytics(response.analytics);
-            setProjectCategories(
-              Object.keys(response.analytics.categories || {})
-            );
-          } else {
-            setAnalytics(null);
-            setProjectCategories([]);
-          }
-        } catch (error) {
-          toast.error("Failed to load analytics data");
-          setAnalytics(null);
-        } finally {
-          setAnalyticsLoading(false);
-        }
-      },
-      [startDate, endDate]
-    );
-
-    useEffect(() => {
-      if (hasAnalyticsAccess) {
-        fetchWorkspaces();
-      }
-    }, [hasAnalyticsAccess, fetchWorkspaces]);
-
-    useEffect(() => {
-      if (selectedWorkspace !== "select_workspace") {
-        fetchProjects(selectedWorkspace);
-        setSelectedProject("select_project");
-        setAnalytics(null);
-      }
-    }, [selectedWorkspace, fetchProjects]);
-
-    useEffect(() => {
-      if (selectedProject !== "select_project") {
-        fetchProjectAnalytics(selectedProject);
-      }
-    }, [selectedProject, fetchProjectAnalytics]);
-
-    if (!hasAnalyticsAccess) {
-      return (
-        <Card className="border-red-200 bg-red-50">
-          <CardContent className="flex flex-col items-center justify-center py-12">
-            <div className="w-16 h-16 bg-red-100 rounded-lg flex items-center justify-center mb-4">
-              <AlertCircle className="w-8 h-8 text-red-500" />
-            </div>
-            <CardTitle className="text-xl text-red-900 mb-2">
-              Access Restricted
-            </CardTitle>
-            <CardDescription className="text-center max-w-md">
-              Analytics dashboard is only available for Admin and Super Admin
-              users. Please contact your workspace administrator for access.
-            </CardDescription>
-            <div className="mt-4 flex items-center gap-2">
-              <span className="text-sm text-gray-600">Your current role:</span>
-              <Badge variant="outline" className="bg-white">
-                {userInfo?.role || "Unknown"}
-              </Badge>
-            </div>
-          </CardContent>
-        </Card>
-      );
-    }
-
-    return (
-      <div className="space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900">
-              Analytics Dashboard
-            </h2>
-            <p className="text-gray-600 mt-1">
-              Project performance metrics and insights
-            </p>
-            <div className="flex items-center gap-2 mt-2">
-              <Badge
-                variant="secondary"
-                className="bg-green-100 text-green-800"
-              >
-                {userInfo?.name}
-              </Badge>
-              <Badge variant="outline">{userInfo?.role}</Badge>
-            </div>
-          </div>
-
-          {analytics && (
-            <div className="flex items-center gap-2 bg-white border rounded-lg p-1">
-              <Button
-                variant={viewMode === "chart" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setViewMode("chart")}
-                className="flex items-center gap-2"
-              >
-                <BarChart2 className="w-4 h-4" />
-                Charts
-              </Button>
-              <Button
-                variant={viewMode === "table" ? "default" : "ghost"}
-                size="sm"
-                onClick={() => setViewMode("table")}
-                className="flex items-center gap-2"
-              >
-                <TableIcon className="w-4 h-4" />
-                Tables
-              </Button>
-            </div>
-          )}
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings2 className="w-5 h-5" />
-              Analytics Configuration
-            </CardTitle>
-            <CardDescription>
-              Configure the scope and timeframe for your analytics
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Workspace</Label>
-                <Select
-                  value={selectedWorkspace}
-                  onValueChange={setSelectedWorkspace}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select workspace" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="select_workspace">
-                      Choose workspace...
-                    </SelectItem>
-                    {workspaces.map((userWorkspace) => (
-                      <SelectItem
-                        key={userWorkspace.workspaceId._id}
-                        value={userWorkspace.workspaceId._id}
-                      >
-                        <div className="flex items-center gap-2">
-                          <Avatar className="w-4 h-4">
-                            <AvatarFallback className="text-xs bg-blue-100 text-blue-600">
-                              {userWorkspace.workspaceId.name.charAt(0)}
-                            </AvatarFallback>
-                          </Avatar>
-                          {userWorkspace.workspaceId.name}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Project</Label>
-                <Select
-                  value={selectedProject}
-                  onValueChange={setSelectedProject}
-                  disabled={selectedWorkspace === "select_workspace"}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select project" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="select_project">
-                      Choose project...
-                    </SelectItem>
-                    {projects.map((project) => (
-                      <SelectItem key={project._id} value={project._id}>
-                        {project.title}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">Start Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-normal"
-                    >
-                      <Calendar className="mr-2 h-4 w-4" />
-                      {startDate ? (
-                        format(startDate, "MMM dd")
-                      ) : (
-                        <span>Start date</span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComponent
-                      mode="single"
-                      selected={startDate}
-                      onSelect={setStartDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-
-              <div className="space-y-2">
-                <Label className="text-sm font-medium">End Date</Label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button
-                      variant="outline"
-                      className="w-full justify-start text-left font-normal"
-                    >
-                      <Calendar className="mr-2 h-4 w-4" />
-                      {endDate ? (
-                        format(endDate, "MMM dd")
-                      ) : (
-                        <span>End date</span>
-                      )}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0">
-                    <CalendarComponent
-                      mode="single"
-                      selected={endDate}
-                      onSelect={setEndDate}
-                      initialFocus
-                    />
-                  </PopoverContent>
-                </Popover>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        {selectedWorkspace === "select_workspace" ||
-        selectedProject === "select_project" ? (
-          <Card className="border-dashed border-gray-300">
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center mb-4">
-                <BarChart3 className="w-8 h-8 text-blue-600" />
-              </div>
-              <CardTitle className="text-xl text-gray-900 mb-2">
-                Select Project for Analytics
-              </CardTitle>
-              <CardDescription className="text-center max-w-md">
-                Choose both workspace and project from the configuration panel
-                above to view detailed performance analytics and insights.
-              </CardDescription>
-            </CardContent>
-          </Card>
-        ) : analyticsLoading ? (
-          <Card>
-            <CardContent className="flex flex-col items-center justify-center py-16">
-              <Loader2 className="w-12 h-12 animate-spin text-blue-500 mb-4" />
-              <p className="text-gray-600 text-lg">Generating Analytics...</p>
-              <p className="text-gray-500 text-sm mt-2">
-                This may take a moment
-              </p>
-            </CardContent>
-          </Card>
-        ) : !analytics ? (
-          <Card className="border-red-200 bg-red-50">
-            <CardContent className="flex flex-col items-center justify-center py-12">
-              <div className="w-16 h-16 bg-red-100 rounded-lg flex items-center justify-center mb-4">
-                <AlertCircle className="w-8 h-8 text-red-500" />
-              </div>
-              <CardTitle className="text-xl text-red-900 mb-2">
-                No Analytics Data
-              </CardTitle>
-              <CardDescription className="text-center max-w-md">
-                No analytics data available for the selected project. This could
-                be because:
-              </CardDescription>
-              <ul className="list-disc list-inside mt-3 text-sm text-gray-600 space-y-1">
-                <li>The project has no tasks yet</li>
-                <li>No tasks match the selected date range</li>
-                <li>Analytics data is still being processed</li>
-              </ul>
-              <Button
-                variant="outline"
-                onClick={() => fetchProjectAnalytics(selectedProject)}
-                className="mt-4"
-                disabled={analyticsLoading}
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                Retry Loading Analytics
-              </Button>
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="space-y-8">
-            <div>
-              <h3 className="text-xl font-bold text-gray-900 mb-6">
-                Overall Project Analytics
-              </h3>
-
-              {analytics.overall.totalTasks === 0 ? (
-                <Card className="border-yellow-200 bg-yellow-50">
-                  <CardContent className="text-center py-8">
-                    <p className="text-yellow-800">
-                      No tasks found in this project
-                    </p>
-                  </CardContent>
-                </Card>
-              ) : (
-                <>
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-                    <Card className="border-indigo-200 bg-indigo-50">
-                      <CardContent className="p-6">
-                        <div className="flex items-center">
-                          <div className="p-3 rounded-lg bg-indigo-100">
-                            <List className="w-6 h-6 text-indigo-600" />
-                          </div>
-                          <div className="ml-4">
-                            <p className="text-sm font-medium text-gray-600">
-                              Total Tasks
-                            </p>
-                            <p className="text-2xl font-bold text-gray-900">
-                              {analytics.overall.totalTasks}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-green-200 bg-green-50">
-                      <CardContent className="p-6">
-                        <div className="flex items-center">
-                          <div className="p-3 rounded-lg bg-green-100">
-                            <Target className="w-6 h-6 text-green-600" />
-                          </div>
-                          <div className="ml-4">
-                            <p className="text-sm font-medium text-gray-600">
-                              Completion Rate
-                            </p>
-                            <p className="text-2xl font-bold text-gray-900">
-                              {analytics.overall.completionRate.toFixed(1)}%
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-blue-200 bg-blue-50">
-                      <CardContent className="p-6">
-                        <div className="flex items-center">
-                          <div className="p-3 rounded-lg bg-blue-100">
-                            <TrendingUp className="w-6 h-6 text-blue-600" />
-                          </div>
-                          <div className="ml-4">
-                            <p className="text-sm font-medium text-gray-600">
-                              Weekly Velocity
-                            </p>
-                            <p className="text-2xl font-bold text-gray-900">
-                              {analytics.overall.velocity.weekly}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card className="border-red-200 bg-red-50">
-                      <CardContent className="p-6">
-                        <div className="flex items-center">
-                          <div className="p-3 rounded-lg bg-red-100">
-                            <AlertCircle className="w-6 h-6 text-red-600" />
-                          </div>
-                          <div className="ml-4">
-                            <p className="text-sm font-medium text-gray-600">
-                              Overdue Tasks
-                            </p>
-                            <p className="text-2xl font-bold text-gray-900">
-                              {analytics.overall.overdueTasks}
-                            </p>
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <Eye className="w-5 h-5" />
-                          Status Distribution
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="h-64 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <PieChart>
-                              <Pie
-                                data={[
-                                  {
-                                    name: "To Do",
-                                    value:
-                                      analytics.overall.statusDistribution[
-                                        "to-do"
-                                      ],
-                                    fill: "#6B7280",
-                                  },
-                                  {
-                                    name: "In Progress",
-                                    value:
-                                      analytics.overall.statusDistribution[
-                                        "in-progress"
-                                      ],
-                                    fill: "#3B82F6",
-                                  },
-                                  {
-                                    name: "Done",
-                                    value:
-                                      analytics.overall.statusDistribution.done,
-                                    fill: "#10B981",
-                                  },
-                                ]}
-                                cx="50%"
-                                cy="50%"
-                                outerRadius={80}
-                                fill="#8884d8"
-                                dataKey="value"
-                                label={({ name, percent }) =>
-                                  `${name}: ${(percent * 100).toFixed(0)}%`
-                                }
-                              >
-                                {[
-                                  { fill: "#6B7280" },
-                                  { fill: "#3B82F6" },
-                                  { fill: "#10B981" },
-                                ].map((entry, index) => (
-                                  <Cell
-                                    key={`cell-${index}`}
-                                    fill={entry.fill}
-                                  />
-                                ))}
-                              </Pie>
-                              <ChartTooltip />
-                            </PieChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </CardContent>
-                    </Card>
-
-                    <Card>
-                      <CardHeader>
-                        <CardTitle className="flex items-center gap-2">
-                          <AlertCircle className="w-5 h-5" />
-                          Priority Distribution
-                        </CardTitle>
-                      </CardHeader>
-                      <CardContent>
-                        <div className="h-64 w-full">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart
-                              data={[
-                                {
-                                  name: "Low",
-                                  value:
-                                    analytics.overall.priorityDistribution.low,
-                                  fill: "#10B981",
-                                },
-                                {
-                                  name: "Medium",
-                                  value:
-                                    analytics.overall.priorityDistribution
-                                      .medium,
-                                  fill: "#F59E0B",
-                                },
-                                {
-                                  name: "High",
-                                  value:
-                                    analytics.overall.priorityDistribution.high,
-                                  fill: "#EF4444",
-                                },
-                              ]}
-                            >
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis dataKey="name" />
-                              <YAxis />
-                              <ChartTooltip />
-                              <Bar dataKey="value" fill="#3B82F6" />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  </div>
-                </>
-              )}
-            </div>
-
-            {projectCategories.length > 0 && (
-              <div>
-                <h3 className="text-xl font-bold text-gray-900 mb-6">
-                  Category Analytics
-                </h3>
-                <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                  {projectCategories.map((categoryName, index) => {
-                    const categoryData = analytics.categories[categoryName];
-                    const colors = [
-                      "border-purple-200 bg-purple-50",
-                      "border-green-200 bg-green-50",
-                      "border-orange-200 bg-orange-50",
-                      "border-pink-200 bg-pink-50",
-                      "border-teal-200 bg-teal-50",
-                    ];
-                    const cardColor = colors[index % colors.length];
-
-                    return (
-                      <Card key={categoryName} className={cardColor}>
-                        <CardHeader>
-                          <CardTitle className="text-lg">
-                            {categoryName}
-                          </CardTitle>
-                          <CardDescription>
-                            Category performance metrics
-                          </CardDescription>
-                        </CardHeader>
-                        <CardContent>
-                          <div className="space-y-4">
-                            <div className="grid grid-cols-2 gap-4 text-sm">
-                              <div>
-                                <p className="text-gray-600">Total Tasks</p>
-                                <p className="text-xl font-bold">
-                                  {categoryData.totalTasks}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-gray-600">Completed</p>
-                                <p className="text-xl font-bold">
-                                  {categoryData.completedTasks}
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-gray-600">Rate</p>
-                                <p className="text-lg font-semibold">
-                                  {categoryData.completionRate.toFixed(1)}%
-                                </p>
-                              </div>
-                              <div>
-                                <p className="text-gray-600">Overdue</p>
-                                <p className="text-lg font-semibold">
-                                  {categoryData.overdueTasks}
-                                </p>
-                              </div>
-                            </div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  };
+  // ==================== RENDER ====================
 
   return (
-    <div className="min-h-screen bg-gray-50/30">
-      <div className="container mx-auto py-6 px-4 space-y-6">
-        <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
-          <div>
-            <h1 className="text-3xl font-bold text-gray-900">Dashboard</h1>
-            {userInfo && (
-              <div className="flex items-center gap-2 mt-2">
-                <p className="text-gray-600">
-                  Welcome back,{" "}
-                  <span className="font-semibold">{userInfo.name}</span>
-                </p>
-                <Badge
-                  variant="secondary"
-                  className={cn(
-                    userInfo.role === "admin" || userInfo.role === "super-admin"
-                      ? "bg-green-100 text-green-800 border-green-200"
-                      : "bg-blue-100 text-blue-800 border-blue-200"
-                  )}
-                >
-                  {userInfo.role}
-                </Badge>
-              </div>
-            )}
-          </div>
+    <>
+      {/* CSS Keyframe Animations */}
+      <style>{`
+        @keyframes fadeInUp {
+          from {
+            opacity: 0;
+            transform: translateY(10px);
+          }
+          to {
+            opacity: 1;
+            transform: translateY(0);
+          }
+        }
 
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-2"
-            >
-              <Download className="w-4 h-4" />
-              Export
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="flex items-center gap-2"
-            >
-              <Plus className="w-4 h-4" />
-              New Task
-            </Button>
-          </div>
+        @keyframes pulse {
+          0%, 100% {
+            transform: scale(1);
+          }
+          50% {
+            transform: scale(1.05);
+          }
+        }
+
+        @keyframes slideInFromLeft {
+          from {
+            opacity: 0;
+            transform: translateX(-20px);
+          }
+          to {
+            opacity: 1;
+            transform: translateX(0);
+          }
+        }
+      `}</style>
+
+      <div className="min-h-screen bg-[#f1f2f7] p-6">
+      <div className="max-w-full mx-auto space-y-6">
+        {/* Page Title */}
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
         </div>
 
-        <Tabs defaultValue="tasks" className="w-full">
-          <TabsList className="grid w-full max-w-md grid-cols-2 h-11">
-            <TabsTrigger value="tasks" className="flex items-center gap-2">
-              <List className="w-4 h-4" />
-              Tasks
-            </TabsTrigger>
-            {hasAnalyticsAccess && (
-              <TabsTrigger
-                value="analytics"
-                className="flex items-center gap-2"
-              >
-                <BarChart3 className="w-4 h-4" />
-                Analytics
-              </TabsTrigger>
-            )}
-          </TabsList>
+        {/* TOP ROW: Statistics Cards + Project Chart Side by Side */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          {/* Left: Project Statistics Cards */}
+          <div className="grid grid-cols-2 gap-[15px]">
+            {/* Total Projects Card */}
+            <div className="bg-[#4a8cd7] h-[120px] rounded-[10px] flex-1 min-w-[200px] overflow-hidden relative">
+              {/* Decorative Circle - Creates light blue gradient effect on top */}
+              <div className="absolute left-[-85px] top-[-135px] w-[256px] h-[256px] rotate-[5.438deg]">
+                <div className="w-full h-full rounded-full bg-[#6ba9e3] opacity-40"></div>
+              </div>
 
-          <TabsContent value="tasks" className="space-y-6 mt-6">
-            <TasksContent />
-          </TabsContent>
+              {/* Content */}
+              <div className="relative z-10 p-[15px]">
+                <p className="font-medium text-[18px] text-white leading-normal mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  Total Projects
+                </p>
+                <p className="font-medium text-[28px] text-white leading-normal" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  {projectStats.totalProjects}
+                </p>
+              </div>
+            </div>
 
-          {hasAnalyticsAccess && (
-            <TabsContent value="analytics" className="space-y-6 mt-6">
-              <AnalyticsContent />
-            </TabsContent>
-          )}
-        </Tabs>
+            {/* Ongoing Projects Card */}
+            <div className="bg-[#479c39] h-[120px] rounded-[10px] flex-1 min-w-[200px] overflow-hidden relative">
+              {/* Decorative Pattern - White wavy lines */}
+              <div className="absolute left-[50px] top-[8px] w-[200.5px] h-[126.5px]">
+                <img
+                  src="/assets/2b063dca51b5ca11609fc603566283ea564647cb.svg"
+                  alt=""
+                  className="block max-w-none w-full h-full"
+                />
+              </div>
+
+              {/* Content */}
+              <div className="relative z-10 p-[15px]">
+                <p className="font-medium text-[18px] text-white leading-normal mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  Ongoing Projects
+                </p>
+                <p className="font-medium text-[28px] text-white leading-normal" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  {projectStats.ongoingProjects}
+                </p>
+              </div>
+            </div>
+
+            {/* Completed Projects Card */}
+            <div className="bg-[#6647bf] h-[120px] rounded-[10px] flex-1 min-w-[200px] overflow-hidden relative">
+              {/* Decorative Circle - Purple circle at top right */}
+              <div className="absolute left-[111px] top-[-40px] w-[100px] h-[100px]">
+                <img
+                  src="/assets/1b64fa6c63104807e4e78a514d253af1cf83e472.svg"
+                  alt=""
+                  className="block max-w-none w-full h-full"
+                />
+              </div>
+
+              {/* Decorative Pattern - Bottom left pattern */}
+              <div className="absolute left-[0.5px] top-[37.5px] w-[138px] h-[82.5px]">
+                <img
+                  src="/assets/2cc8d5759ab199ac352266e7f212d8c7f1f25fcb.svg"
+                  alt=""
+                  className="block max-w-none w-full h-full"
+                />
+              </div>
+
+              {/* Content */}
+              <div className="relative z-10 p-[15px]">
+                <p className="font-medium text-[18px] text-white leading-normal mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  Completed Projects
+                </p>
+                <p className="font-medium text-[28px] text-white leading-normal" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  {projectStats.completedProjects}
+                </p>
+              </div>
+            </div>
+
+            {/* Proposed Projects Card */}
+            <div className="bg-[#f27944] h-[120px] rounded-[10px] flex-1 min-w-[200px] overflow-hidden relative">
+              {/* Decorative Shape - Left side light shape */}
+              <div className="absolute left-[-80px] top-[-55px] w-[148.992px] h-[136px]">
+                <img
+                  src="/assets/c22bb55b4bce2667347f808cb73b615654287850.svg"
+                  alt=""
+                  className="block max-w-none w-full h-full"
+                />
+              </div>
+
+              {/* Decorative Pattern - Right side pattern */}
+              <div className="absolute left-[124px] top-[-33px] w-[100.186px] h-[111.296px]">
+                <img
+                  src="/assets/c8c774b0bd6d6628bb3416cb3eb48d96f38697cd.svg"
+                  alt=""
+                  className="block max-w-none w-full h-full"
+                />
+              </div>
+
+              {/* Content */}
+              <div className="relative z-10 p-[15px]">
+                <p className="font-medium text-[18px] text-white leading-normal mb-2" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  Proposed Projects
+                </p>
+                <p className="font-medium text-[28px] text-white leading-normal" style={{ fontFamily: 'Montserrat, sans-serif' }}>
+                  {projectStats.proposedProjects}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {/* Right: Project Statistics Pie Chart */}
+          <Card className="border border-[#e9ecf1]">
+            <CardHeader className="pb-4">
+              <div className="flex items-center justify-between">
+                <CardTitle className="font-['Inter'] font-medium text-[16px] text-[#2e2e30]">
+                  Project Statistics
+                </CardTitle>
+                {/* Month/Year Picker */}
+                <DropdownMenu open={showMonthPicker} onOpenChange={setShowMonthPicker}>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="h-[25px] rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[8px] flex items-center gap-2"
+                    >
+                      <Calendar className="w-4 h-4" />
+                      {formatMonthYear(selectedMonth, selectedYear)}
+                      <ChevronDown className="w-3 h-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-[280px] p-4">
+                    <div className="space-y-4">
+                      {/* Year Selector */}
+                      <div className="flex items-center justify-between gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const newYear = selectedYear - 1;
+                            setSelectedYear(newYear);
+                            handleMonthChange(selectedMonth, newYear);
+                          }}
+                          className="h-8 px-2"
+                        >
+                          ←
+                        </Button>
+                        <span className="text-sm font-semibold">{selectedYear}</span>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            const newYear = selectedYear + 1;
+                            setSelectedYear(newYear);
+                            handleMonthChange(selectedMonth, newYear);
+                          }}
+                          className="h-8 px-2"
+                        >
+                          →
+                        </Button>
+                      </div>
+                      {/* Month Grid */}
+                      <div className="grid grid-cols-3 gap-2">
+                        {[
+                          "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                          "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+                        ].map((monthName, index) => (
+                          <Button
+                            key={index}
+                            variant="outline"
+                            size="sm"
+                            className={cn(
+                              "h-8 text-xs",
+                              selectedMonth === index && "bg-blue-100 border-blue-500"
+                            )}
+                            onClick={() => handleMonthChange(index, selectedYear)}
+                          >
+                            {monthName}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center justify-between">
+                {/* Pie Chart */}
+                <div className="h-[200px] w-[200px] relative">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <PieChart>
+                      <Pie
+                        data={chartData}
+                        cx="50%"
+                        cy="50%"
+                        innerRadius={60}
+                        outerRadius={90}
+                        paddingAngle={2}
+                        dataKey="value"
+                        animationBegin={0}
+                        animationDuration={800}
+                        animationEasing="ease-in-out"
+                        isAnimationActive={true}
+                      >
+                        {chartData.map((entry, index) => (
+                          <Cell
+                            key={`cell-${index}`}
+                            fill={entry.fill}
+                            style={{
+                              filter: 'drop-shadow(0px 2px 4px rgba(0,0,0,0.1))',
+                              transition: 'all 0.3s ease-in-out'
+                            }}
+                          />
+                        ))}
+                      </Pie>
+                      <RechartsTooltip
+                        contentStyle={{
+                          backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                          border: '1px solid #e0e0e0',
+                          borderRadius: '8px',
+                          padding: '8px 12px',
+                          boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                        }}
+                        itemStyle={{
+                          color: '#333',
+                          fontSize: '12px',
+                          fontWeight: '500',
+                        }}
+                      />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  {/* Center Text - Shows monthly total with smooth animation */}
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center transition-all duration-500 ease-in-out">
+                    <p className="font-['Inter'] font-semibold text-[20px] text-black leading-[23px] transition-all duration-300">
+                      {monthlyProjectStats.total}
+                    </p>
+                    <p className="font-['Inter'] font-normal text-[12px] text-black leading-[12px] mt-1">
+                      Total Projects
+                    </p>
+                  </div>
+                </div>
+
+                {/* Legend with animations */}
+                <div className="flex flex-col gap-[15px]">
+                  {chartData.map((item, index) => (
+                    <div
+                      key={item.name}
+                      className="flex items-center justify-between gap-8 min-w-[120px] transition-all duration-300 hover:scale-105"
+                      style={{
+                        animation: `fadeInUp 0.5s ease-out ${index * 0.1}s both`
+                      }}
+                    >
+                      <div className="flex items-center gap-[5px]">
+                        <div
+                          className="w-[10px] h-[10px] rounded-full transition-all duration-300 hover:scale-125"
+                          style={{
+                            backgroundColor: item.fill,
+                            boxShadow: `0 2px 6px ${item.fill}40`
+                          }}
+                        />
+                        <span className="font-['Inter'] font-semibold text-[12px] text-[#767676]">
+                          {item.name}
+                        </span>
+                      </div>
+                      <span className="font-['Inter'] font-bold text-[12px] text-neutral-700 transition-all duration-300">
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+
+        {/* BOTTOM ROW: Recent Projects Table + Task Overview Side by Side */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          {/* Left: Recent Ongoing Projects Table (2/3 width) */}
+          <div className="lg:col-span-2">
+            <Card className="shadow-[0px_1px_0px_0px_rgba(0,0,0,0.1)]">
+              <CardHeader className="px-[20px] py-[15px]">
+                <div className="flex flex-col gap-[20px]">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-[16px]">
+                      <div>
+                        <h3 className="font-['Inter'] font-normal text-[16px] text-black leading-[20px]">
+                          All Projects
+                        </h3>
+                        <p className="font-['Inter'] font-medium text-[20px] text-black leading-[20px] inline ml-2">
+                          {recentProjects.length}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-[15px]">
+                      {/* Workspace Dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
+                          >
+                            <Building2 className="w-4 h-4" />
+                            {currentWorkspace?.name || "Workspace"}
+                            <ChevronDown className="w-3 h-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[200px]">
+                          {workspaces.map((workspace) => (
+                            <DropdownMenuItem
+                              key={workspace._id}
+                              onClick={() => handleSwitchWorkspace(workspace._id)}
+                              className={cn(
+                                "cursor-pointer",
+                                currentWorkspace?._id === workspace._id && "bg-blue-50"
+                              )}
+                            >
+                              {workspace.name}
+                              {currentWorkspace?._id === workspace._id && (
+                                <span className="ml-auto text-blue-600">✓</span>
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+
+                      {/* Project Type Filter - HIDDEN */}
+                      {/* <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
+                          >
+                            <Folder className="w-4 h-4" />
+                            {projectTypeFilter === "all" ? "Project Type" : projectTypeFilter}
+                            <ChevronDown className="w-3 h-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[180px]">
+                          <DropdownMenuItem
+                            onClick={() => setProjectTypeFilter("all")}
+                            className={cn(
+                              "cursor-pointer",
+                              projectTypeFilter === "all" && "bg-blue-50"
+                            )}
+                          >
+                            All Types
+                            {projectTypeFilter === "all" && (
+                              <span className="ml-auto text-blue-600">✓</span>
+                            )}
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setProjectTypeFilter("Development")}
+                            className={cn(
+                              "cursor-pointer",
+                              projectTypeFilter === "Development" && "bg-blue-50"
+                            )}
+                          >
+                            Development
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setProjectTypeFilter("Research")}
+                            className={cn(
+                              "cursor-pointer",
+                              projectTypeFilter === "Research" && "bg-blue-50"
+                            )}
+                          >
+                            Research
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() => setProjectTypeFilter("Marketing")}
+                            className={cn(
+                              "cursor-pointer",
+                              projectTypeFilter === "Marketing" && "bg-blue-50"
+                            )}
+                          >
+                            Marketing
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu> */}
+
+                      {/* Date Filter - HIDDEN */}
+                      {/* <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
+                          >
+                            <Calendar className="w-4 h-4" />
+                            {dateRangeFilter.start || dateRangeFilter.end ? "Date Filtered" : "Start Date"}
+                            <ChevronDown className="w-3 h-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[250px] p-4">
+                          <div className="space-y-3">
+                            <div>
+                              <label className="text-xs font-medium text-gray-700 mb-1 block">
+                                Start Date From:
+                              </label>
+                              <Input
+                                type="date"
+                                value={dateRangeFilter.start}
+                                onChange={(e) =>
+                                  setDateRangeFilter({ ...dateRangeFilter, start: e.target.value })
+                                }
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <div>
+                              <label className="text-xs font-medium text-gray-700 mb-1 block">
+                                Start Date To:
+                              </label>
+                              <Input
+                                type="date"
+                                value={dateRangeFilter.end}
+                                onChange={(e) =>
+                                  setDateRangeFilter({ ...dateRangeFilter, end: e.target.value })
+                                }
+                                className="h-8 text-xs"
+                              />
+                            </div>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="w-full text-xs"
+                              onClick={() => setDateRangeFilter({ start: "", end: "" })}
+                            >
+                              Clear Filter
+                            </Button>
+                          </div>
+                        </DropdownMenuContent>
+                      </DropdownMenu> */}
+                    </div>
+                  </div>
+                  <p className="font-['Inter'] font-normal text-[12px] text-[#717182] leading-[12px] tracking-[0.5px]">
+                    Latest Projects Under Development and Execution
+                  </p>
+                </div>
+              </CardHeader>
+              <CardContent className="px-[20px] pb-[15px]">
+                <div className="border border-[#cccccc] rounded-[10px] overflow-hidden">
+                  <table className="w-full">
+                    <thead>
+                      <tr className="bg-[#d5e5ff]">
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)] min-h-[40px] w-[60px]">
+                          <div className="flex items-center gap-2">
+                            S.No
+                          </div>
+                        </th>
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)] min-h-[40px]">
+                          <div className="flex items-center gap-2">
+                            Title
+                            <Filter className="w-3 h-3" />
+                          </div>
+                        </th>
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
+                          <div className="flex items-center gap-2">
+                            Description
+                            <Filter className="w-3 h-3" />
+                          </div>
+                        </th>
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
+                          <div className="flex items-center gap-2">
+                            Status
+                            <Filter className="w-3 h-3" />
+                          </div>
+                        </th>
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
+                          <div className="flex items-center gap-2">
+                            Start Date
+                            <Filter className="w-3 h-3" />
+                          </div>
+                        </th>
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
+                          <div className="flex items-center gap-2">
+                            End Date
+                            <Filter className="w-3 h-3" />
+                          </div>
+                        </th>
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
+                          <div className="flex items-center gap-2">
+                            Days
+                            <Filter className="w-3 h-3" />
+                          </div>
+                        </th>
+                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
+                          Action
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recentProjects.length === 0 ? (
+                        <tr>
+                          <td colSpan={8} className="px-[16px] py-[14px] text-center text-[12px] font-['Inter'] text-black">
+                            No projects found
+                          </td>
+                        </tr>
+                      ) : (
+                        recentProjects.map((project, index) => (
+                          <tr
+                            key={project._id}
+                            className={index % 2 === 1 ? "bg-[#f2f7ff]" : ""}
+                          >
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px]">
+                              {index + 1}
+                            </td>
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px] max-w-[200px] truncate">
+                              {project.title}
+                            </td>
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px] max-w-[250px] truncate">
+                              {project.description || "No description"}
+                            </td>
+                            <td className="px-[16px] py-[14px]">
+                              <StatusBadge status={project.status} />
+                            </td>
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-[#1a932e] tracking-[0.5px] whitespace-nowrap">
+                              {formatDate(project.startDate)}
+                            </td>
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-[#cd2812] tracking-[0.5px] whitespace-nowrap">
+                              {formatDate(project.endDate)}
+                            </td>
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-semibold text-black tracking-[0.5px] whitespace-nowrap">
+                              {calculateDaysBetween(project.startDate, project.endDate)} days
+                            </td>
+                            <td className="px-[16px] py-[14px]">
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-auto px-[10px] py-[5px] text-[12px] font-['Inter'] font-normal text-[#344bfd] hover:text-[#344bfd] hover:underline hover:bg-transparent"
+                                onClick={() => handleViewProject(project._id)}
+                              >
+                                <Eye className="w-4 h-4 mr-1" />
+                                View
+                              </Button>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right: Task Overview Panel (1/3 width) */}
+          <div className="lg:col-span-1">
+            <Card className="overflow-hidden px-[10px] py-[15px]">
+              <div className="px-[10px]">
+                {/* Header */}
+                <div className="flex items-center justify-between gap-[10px] mb-[15px]">
+                  <h3 className="font-['Inter'] font-medium text-[16px] text-[#2e2e30] leading-normal flex-1">
+                    Task Overview
+                  </h3>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
+                  >
+                    See All
+                    <ArrowRight className="w-4 h-4" />
+                  </Button>
+                </div>
+
+                {/* Search and Filter */}
+                <div className="space-y-[10px] mb-[15px]">
+                  <div className="relative bg-[#f5f4f9] rounded-[8px] h-[37px] px-[10px] flex items-center justify-between">
+                    <div className="flex items-center gap-[10px]">
+                      <Search className="w-[15px] h-[15px] text-[#040110] opacity-60" />
+                      <input
+                        type="text"
+                        placeholder="Search..."
+                        value={taskSearchQuery}
+                        onChange={(e) => setTaskSearchQuery(e.target.value)}
+                        className="bg-transparent border-none outline-none text-[14px] font-['Inter'] text-[#040110] opacity-60 placeholder:text-[#040110] placeholder:opacity-60"
+                      />
+                    </div>
+                    {/* <Filter className="w-4 h-4 text-[#040110]" /> */}
+                  </div>
+
+                  <div className="flex items-center gap-[10px]">
+                    <button
+                      onClick={() => setTaskStatusFilter("all")}
+                      className={cn(
+                        "px-[10px] py-[10px] rounded-tl-[10px] rounded-tr-[10px] text-[14px] font-['Inter'] font-normal text-[#000d2a] leading-normal transition-all",
+                        taskStatusFilter === "all"
+                          ? "border-b-[1px] border-[#f2761b] opacity-100"
+                          : "opacity-60"
+                      )}
+                    >
+                      All
+                    </button>
+                    <button
+                      onClick={() => setTaskStatusFilter("to-do")}
+                      className={cn(
+                        "px-[10px] py-[10px] rounded-tl-[10px] rounded-tr-[10px] text-[14px] font-['Inter'] font-normal text-[#000d2a] leading-normal transition-all",
+                        taskStatusFilter === "to-do"
+                          ? "border-b-[1px] border-[#f2761b] opacity-100"
+                          : "opacity-60"
+                      )}
+                    >
+                      To Do
+                    </button>
+                    <button
+                      onClick={() => setTaskStatusFilter("in-progress")}
+                      className={cn(
+                        "px-[10px] py-[10px] rounded-tl-[10px] rounded-tr-[10px] text-[14px] font-['Inter'] font-normal text-[#000d2a] leading-normal transition-all",
+                        taskStatusFilter === "in-progress"
+                          ? "border-b-[1px] border-[#f2761b] opacity-100"
+                          : "opacity-60"
+                      )}
+                    >
+                      In Progress
+                    </button>
+                    <button
+                      onClick={() => setTaskStatusFilter("done")}
+                      className={cn(
+                        "px-[10px] py-[10px] rounded-tl-[10px] rounded-tr-[10px] text-[14px] font-['Inter'] font-normal text-[#000d2a] leading-normal transition-all",
+                        taskStatusFilter === "done"
+                          ? "border-b-[1px] border-[#f2761b] opacity-100"
+                          : "opacity-60"
+                      )}
+                    >
+                      Done
+                    </button>
+                  </div>
+                </div>
+
+                {/* Task List */}
+                <ScrollArea className="h-[600px]">
+                  <div className="space-y-[10px]">
+                    {filteredTasks.length === 0 ? (
+                      <div className="text-center py-8 text-[#717182] text-[14px] font-['Inter']">
+                        {taskSearchQuery ? "No tasks match your search" : "No tasks found"}
+                      </div>
+                    ) : (
+                      filteredTasks.map((task) => {
+                        return (
+                          <div
+                            key={task._id}
+                            className={cn(
+                              "rounded-lg border border-gray-200 bg-white p-4 transition-all duration-200 hover:shadow-md hover:border-gray-300",
+                              "flex gap-3 items-start"
+                            )}
+                          >
+                            {/* Status indicator */}
+                            <div 
+                              className={cn(
+                                "w-1 h-16 rounded-full shrink-0 mt-1",
+                                task.status === "to-do" && "bg-blue-500",
+                                task.status === "in-progress" && "bg-amber-500", 
+                                task.status === "done" && "bg-green-500"
+                              )}
+                            />
+                            
+                            {/* Task content */}
+                            <div className="flex-1 min-w-0">
+                              {/* Task title */}
+                              <h4 className="font-medium text-gray-900 text-sm leading-5 mb-2 truncate">
+                                {task.title}
+                              </h4>
+                              
+                              {/* Task description */}
+                              {task.description && (
+                                <p className="text-gray-600 text-xs leading-4 mb-3 line-clamp-2">
+                                  {task.description}
+                                </p>
+                              )}
+                              
+                              {/* Task metadata */}
+                              <div className="flex items-center justify-between">
+                                {/* Assignee */}
+                                {task.assignedTo && (
+                                  <div className="flex items-center gap-2">
+                                    <div className="w-6 h-6 rounded-full bg-gradient-to-br from-purple-500 to-blue-500 flex items-center justify-center text-white text-xs font-medium">
+                                      {task.assignedTo.name.charAt(0).toUpperCase()}
+                                    </div>
+                                    <span className="text-gray-700 text-xs font-medium truncate max-w-24">
+                                      {task.assignedTo.name}
+                                    </span>
+                                  </div>
+                                )}
+                                
+                                {/* Status badge */}
+                                <div className={cn(
+                                  "px-2 py-1 rounded-full text-xs font-medium",
+                                  task.status === "to-do" && "bg-blue-100 text-blue-700",
+                                  task.status === "in-progress" && "bg-amber-100 text-amber-700",
+                                  task.status === "done" && "bg-green-100 text-green-700"
+                                )}>
+                                  {task.status === "to-do" ? "To Do" : 
+                                   task.status === "in-progress" ? "In Progress" : "Done"}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </ScrollArea>
+              </div>
+            </Card>
+          </div>
+        </div>
       </div>
     </div>
+    </>
   );
 };
 

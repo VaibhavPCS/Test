@@ -37,31 +37,19 @@ type Pages = {
   "/workspace": {
     params: {};
   };
-  "/meetings": {
-    params: {};
-  };
-  "/messages": {
-    params: {};
-  };
-  "/administration": {
-    params: {};
-  };
-  "/administration/role-management": {
-    params: {};
-  };
-  "/administration/user-management": {
-    params: {};
-  };
-  "/profile": {
-    params: {};
-  };
   "/tasks": {
+    params: {};
+  };
+  "/meetings": {
     params: {};
   };
   "/members": {
     params: {};
   };
   "/archived": {
+    params: {};
+  };
+  "/chat": {
     params: {};
   };
   "/settings": {
@@ -87,15 +75,15 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/meetings" | "/messages" | "/administration" | "/administration/role-management" | "/administration/user-management" | "/profile" | "/tasks" | "/members" | "/archived" | "/settings" | "/project/:id" | "/task/:id" | "/*";
+    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/*";
+  };
+  "routes/root/redirect.tsx": {
+    id: "routes/root/redirect";
+    page: "/";
   };
   "routes/auth/auth-layout.tsx": {
     id: "routes/auth/auth-layout";
-    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email";
-  };
-  "routes/root/home.tsx": {
-    id: "routes/root/home";
-    page: "/";
+    page: "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email";
   };
   "routes/auth/sign-in.tsx": {
     id: "routes/auth/sign-in";
@@ -123,7 +111,7 @@ type RouteFiles = {
   };
   "components/layout/dashboard-layout.tsx": {
     id: "components/layout/dashboard-layout";
-    page: "/dashboard" | "/workspace" | "/meetings" | "/messages" | "/administration" | "/administration/role-management" | "/administration/user-management" | "/profile" | "/tasks" | "/members" | "/archived" | "/settings" | "/project/:id" | "/task/:id";
+    page: "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id";
   };
   "routes/dashboard/dashboard.tsx": {
     id: "routes/dashboard/dashboard";
@@ -133,33 +121,13 @@ type RouteFiles = {
     id: "routes/workspace/workspace";
     page: "/workspace";
   };
-  "routes/meetings/meetings.tsx": {
-    id: "routes/meetings/meetings";
-    page: "/meetings";
-  };
-  "routes/messages/messages.tsx": {
-    id: "routes/messages/messages";
-    page: "/messages";
-  };
-  "routes/administration/administration.tsx": {
-    id: "routes/administration/administration";
-    page: "/administration";
-  };
-  "routes/administration/role-management/role-management.tsx": {
-    id: "routes/administration/role-management/role-management";
-    page: "/administration/role-management";
-  };
-  "routes/administration/user-management/user-management.tsx": {
-    id: "routes/administration/user-management/user-management";
-    page: "/administration/user-management";
-  };
-  "routes/profile/profile.tsx": {
-    id: "routes/profile/profile";
-    page: "/profile";
-  };
   "routes/tasks/tasks.tsx": {
     id: "routes/tasks/tasks";
     page: "/tasks";
+  };
+  "routes/meetings/meetings.tsx": {
+    id: "routes/meetings/meetings";
+    page: "/meetings";
   };
   "routes/members/members.tsx": {
     id: "routes/members/members";
@@ -168,6 +136,10 @@ type RouteFiles = {
   "routes/archived/archived.tsx": {
     id: "routes/archived/archived";
     page: "/archived";
+  };
+  "routes/chat/chat.tsx": {
+    id: "routes/chat/chat";
+    page: "/chat";
   };
   "routes/settings/settings.tsx": {
     id: "routes/settings/settings";

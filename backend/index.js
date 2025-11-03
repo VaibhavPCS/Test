@@ -18,43 +18,16 @@ import xss from 'xss-clean';
 import https from 'https';
 import http from 'http';
 import fs from 'fs';
-import path from 'path';
+import { swaggerDocs } from './libs/swagger.js';
+import { startMeetingReminderCron, startMeetingStatusCron } from './libs/meeting-reminder.js';
+import { initializeSocket } from './libs/socket-service.js';
+
 dotenv.config();
 handleUncaughtException();
 
 const app = express();
 
-// Enhanced security headers configuration
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-      fontSrc: ["'self'", "https://fonts.gstatic.com"],
-      imgSrc: ["'self'", "data:", "https:"],
-      scriptSrc: ["'self'"],
-      connectSrc: ["'self'", process.env.FRONTEND_URL || "https://pms.upda.co.in"],
-    },
-  },
-  crossOriginOpenerPolicy: { policy: "same-origin" },
-  crossOriginEmbedderPolicy: false, // Set to true if needed for specific features
-  hsts: {
-    maxAge: 63072000, // 2 years
-    includeSubDomains: true,
-    preload: true
-  }
-}));
-
-// Additional security headers
-app.use((req, res, next) => {
-  res.setHeader('Origin-Agent-Cluster', '?1');
-  res.setHeader('X-DNS-Prefetch-Control', 'off');
-  res.setHeader('X-Frame-Options', 'DENY');
-  res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
-  next();
-});
+app.use(helmet());
 
 // Rate limiting - Limit requests from same IP
 const limiter = rateLimit({
@@ -79,46 +52,27 @@ app.use('/api-v1/auth/forgot-password', authLimiter);
 app.use(express.json({ limit: '10kb' }));
 app.use(express.urlencoded({ extended: true, limit: '10kb' }));
 
-// Cookie parser for HTTP-only cookies
-app.use(cookieParser());
-
 // Data sanitization against NoSQL query injection
 app.use(mongoSanitize());
 
 // Data sanitization against XSS
 app.use(xss());
 
-// Enhanced CORS configuration for HTTPS
+// CORS configuration
 const allowedOrigins = process.env.NODE_ENV === 'production'
-  ? [
-      process.env.FRONTEND_URL,
-      'https://pms.upda.co.in',
-      'https://pms.upda.co.in:5000'
-    ]
-  : [
-      'http://localhost:5173',
-      'http://127.0.0.1:5173',
-      'https://localhost:5173',
-      'https://127.0.0.1:5173'
-    ];
+  ? [process.env.FRONTEND_URL]
+  : ['http://localhost:5173', 'http://127.0.0.1:2000'];
 
 app.use(cors({
-    origin: (origin, callback) => {
-      // Allow requests with no origin (mobile apps, curl, etc.)
-      if (!origin) return callback(null, true);
-      
-      if (allowedOrigins.includes(origin) || allowedOrigins.includes('*')) {
-        return callback(null, true);
-      }
-      
-      const msg = 'The CORS policy for this site does not allow access from the specified Origin.';
-      return callback(new Error(msg), false);
-    },
+    origin: allowedOrigins,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'workspace-id', 'X-Requested-With'],
-    credentials: true,
-    optionsSuccessStatus: 200 // For legacy browser support
+    // Allow headers used by the frontend, including browser-added Cache-Control
+    allowedHeaders: ['Content-Type', 'Authorization', 'workspace-id', 'Cache-Control'],
+    credentials: true
 }));
+
+// Parse cookies so auth middleware can read HTTP-only cookie
+app.use(cookieParser());
 
 // Handle preflight requests
 app.options('*', cors());
@@ -126,15 +80,21 @@ app.options('*', cors());
 // Logging middleware (use 'combined' in production)
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
+// Swagger / OpenAPI docs
+swaggerDocs(app);
+
 // Database connection
 mongoose.connect(process.env.MONGODB_URI, {
-  // Connection options for better reliability
   maxPoolSize: 10,
   serverSelectionTimeoutMS: 5000,
   socketTimeoutMS: 45000,
 })
 .then(() => {
   console.log('MongoDB connected successfully');
+  
+  // Start meeting reminder and status update cron jobs
+  startMeetingReminderCron();
+  startMeetingStatusCron();
 })
 .catch((err) => {
   console.error('MongoDB connection error:', err.message);
@@ -150,57 +110,9 @@ mongoose.connection.on('disconnected', () => {
 });
 
 const PORT = process.env.PORT || 5000;
-const HTTPS_PORT = process.env.HTTPS_PORT || 5443;
+const HTTPS_PORT = process.env.HTTPS_PORT || 5001;
 
-// SSL Certificate configuration
-const getSSLOptions = () => {
-  try {
-    if (process.env.NODE_ENV === 'production') {
-      // Production SSL certificate paths
-      const sslKeyPath = process.env.SSL_KEY_PATH || '/etc/ssl/private/server.key';
-      const sslCertPath = process.env.SSL_CERT_PATH || '/etc/ssl/certs/server.crt';
-      const sslCaPath = process.env.SSL_CA_PATH; // Optional CA bundle
-      
-      const options = {
-        key: fs.readFileSync(sslKeyPath),
-        cert: fs.readFileSync(sslCertPath)
-      };
-      
-      if (sslCaPath && fs.existsSync(sslCaPath)) {
-        options.ca = fs.readFileSync(sslCaPath);
-      }
-      
-      return options;
-    } else {
-      // Development self-signed certificate
-      const certDir = path.join(process.cwd(), 'certs');
-      const keyPath = path.join(certDir, 'server.key');
-      const certPath = path.join(certDir, 'server.crt');
-      
-      if (fs.existsSync(keyPath) && fs.existsSync(certPath)) {
-        return {
-          key: fs.readFileSync(keyPath),
-          cert: fs.readFileSync(certPath)
-        };
-      }
-    }
-  } catch (error) {
-    console.warn('SSL certificates not found, running HTTP only:', error.message);
-  }
-  return null;
-};
-
-// Force HTTPS redirect in production
-if (process.env.NODE_ENV === 'production') {
-  app.use((req, res, next) => {
-    if (req.header('x-forwarded-proto') !== 'https') {
-      res.redirect(`https://${req.header('host')}${req.url}`);
-    } else {
-      next();
-    }
-  });
-}
-
+// Health check endpoint
 app.get('/health', (req, res) => {
     res.status(200).json({
       status: 'ok',
@@ -211,10 +123,7 @@ app.get('/health', (req, res) => {
     });
 });
 
-import { swaggerDocs } from './libs/swagger.js';
-
-swaggerDocs(app);
-
+// Root endpoint
 app.get('/', (req, res) => {
     res.status(200).json({
       message: 'Welcome to PMS API',
@@ -230,55 +139,89 @@ app.use(notFoundHandler);
 app.use(errorHandler);
 handleUnhandledRejection();
 
-// Server startup with SSL support
-const sslOptions = getSSLOptions();
 let server;
 
-if (sslOptions) {
-  // Start HTTPS server
-  server = https.createServer(sslOptions, app).listen(HTTPS_PORT, () => {
-    console.log(`🔒 HTTPS Server is running on port ${HTTPS_PORT}`);
-    console.log(`🔗 API URL: https://localhost:${HTTPS_PORT}`);
-  });
-  
-  // Optional: Start HTTP server for redirects
-  if (process.env.ENABLE_HTTP_REDIRECT !== 'false') {
-    const httpApp = express();
-    httpApp.use((req, res) => {
-      res.redirect(301, `https://${req.headers.host.replace(/:\d+$/, `:${HTTPS_PORT}`)}${req.url}`);
-    });
+const PROTOCOL = process.env.PROTOCOL || 'http';
+
+if (PROTOCOL === 'https') {
+  try {
+    // SSL certificate configuration
+    const sslOptions = {
+      key: fs.readFileSync(process.env.SSL_KEY_PATH),
+      cert: fs.readFileSync(process.env.SSL_CERT_PATH),
+      ca: fs.readFileSync(process.env.SSL_CA_PATH)
+    };
+
+    // Create HTTPS server
+    server = https.createServer(sslOptions, app);
     
-    http.createServer(httpApp).listen(PORT, () => {
-      console.log(`🔄 HTTP Redirect server running on port ${PORT} -> HTTPS ${HTTPS_PORT}`);
+    server.listen(HTTPS_PORT, () => {
+      console.log(`✅ HTTPS Server running on port ${HTTPS_PORT}`);
+      console.log(`✅ SSL Certificates loaded successfully`);
+      console.log(`✅ Environment: ${process.env.NODE_ENV}`);
+      
+      // Initialize Socket.IO for HTTPS
+      initializeSocket(server);
+    });
+
+    // Optional: HTTP to HTTPS redirect
+    if (process.env.REDIRECT_HTTP_TO_HTTPS === 'true') {
+      const httpApp = express();
+      httpApp.use('*', (req, res) => {
+        res.redirect(301, `https://${req.headers.host}${req.url}`);
+      }); 
+      
+      http.createServer(httpApp).listen(PORT, () => {
+        console.log(`✅ HTTP Server on port ${PORT} (redirecting to HTTPS)`);
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Failed to load SSL certificates:', error.message);
+    console.log('⚠️  Falling back to HTTP server...');
+    
+    // Fallback to HTTP
+    server = http.createServer(app);
+    server.listen(PORT, () => {
+      console.log(`⚠️  HTTP Server running on port ${PORT} (SSL failed)`);
+      
+      // Initialize Socket.IO for HTTP fallback
+      initializeSocket(server);
     });
   }
 } else {
-  // Fallback to HTTP server
-  server = app.listen(PORT, () => {
-    console.log(`⚠️  HTTP Server is running on port ${PORT}`);
-    console.log(`🔗 API URL: http://localhost:${PORT}`);
-    console.log(`⚠️  Warning: Running without SSL in ${process.env.NODE_ENV || 'development'} mode`);
+  // Development mode - HTTP only
+  server = http.createServer(app);
+  server.listen(PORT, () => {
+    console.log(`🚀 HTTP Server running on port ${PORT}`);
+    console.log(`🚀 Environment: ${process.env.NODE_ENV || 'development'}`);
   });
 }
 
-process.on('SIGTERM', () => {
-  console.log('Shutting down');
-  server.close(() => {
-    console.log('Process terminated');
-    mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed');
-      process.exit(0);
-    });
-  });
-});
+// Initialize Socket.IO after server is created
+if (server) {
+  initializeSocket(server);
+}
 
-process.on('SIGINT', () => {
-  console.log('Shutting down');
-  server.close(() => {
-    console.log('Process terminated');
-    mongoose.connection.close(false, () => {
-      console.log('MongoDB connection closed');
-      process.exit(0);
-    });
-  });
-});
+// // Graceful shutdown handlers
+// const gracefulShutdown = () => {
+//   console.log('\n🛑 Shutting down gracefully...');
+//   server.close(() => {
+//     console.log('✅ HTTP(S) server closed');
+//     mongoose.connection.close(false, () => {
+//       console.log('✅ MongoDB connection closed');
+//       process.exit(0);
+//     });
+//   });
+
+//   // Force close after 10 seconds
+//   setTimeout(() => {
+//     console.error('⚠️  Forcing shutdown after timeout');
+//     process.exit(1);
+//   }, 10000);
+// };
+
+// process.on('SIGTERM', gracefulShutdown);
+// process.on('SIGINT', gracefulShutdown);
+
+export default app;

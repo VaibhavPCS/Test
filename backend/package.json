@@ -7,13 +7,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node index.js",
-    "dev": "nodemon index.js",
-    "generate-certs": "node scripts/generate-ssl-certs.js",
-    "dev:https": "npm run generate-certs && nodemon index.js",
-    "start:https": "npm run generate-certs && node index.js",
-    "check-ssl": "node scripts/check-ssl.js",
-    "validate-security": "node scripts/validate-security.js",
-    "health-check": "node scripts/validate-security.js https://localhost:5443/health"
+    "dev": "nodemon index.js"
   },
   "keywords": [],
   "author": "",
@@ -34,8 +28,10 @@
     "mongoose": "^8.19.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
+    "node-cron": "^3.0.3",
     "nodemailer": "^7.0.9",
     "otplib": "^12.0.1",
+    "socket.io": "^4.8.1",
     "swagger-jsdoc": "^6.2.8",
     "swagger-ui-express": "^5.0.1",
     "xss-clean": "^0.1.4",

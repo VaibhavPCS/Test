@@ -193,7 +193,7 @@ const updateTaskStatus = async (req, res) => {
   }
 };
 
-// ✅ NEW: Handover notes function
+// ✅ NEW: Handover notes function (with attachments)
 const updateHandoverNotes = async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -218,9 +218,29 @@ const updateHandoverNotes = async (req, res) => {
       return res.status(403).json({ message: "Permission denied to update handover notes" });
     }
 
+    // Prepare attachments if provided
+    const newAttachments = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const isImage = file.mimetype.startsWith('image/');
+        const subfolder = isImage ? 'images' : 'documents';
+        newAttachments.push({
+          fileName: file.originalname,
+          fileUrl: `/uploads/handover/${subfolder}/${file.filename}`,
+          fileType: isImage ? 'image' : 'document',
+          fileSize: file.size,
+          mimeType: file.mimetype
+        });
+      }
+    }
+
+    // Update notes and append attachments atomically
     const updatedTask = await Task.findByIdAndUpdate(
       taskId,
-      { handoverNotes: handoverNotes || '' },
+      {
+        $set: { handoverNotes: handoverNotes || '' },
+        ...(newAttachments.length > 0 ? { $push: { handoverAttachments: { $each: newAttachments } } } : {})
+      },
       { new: true }
     )
     .populate('assignee', 'name email')

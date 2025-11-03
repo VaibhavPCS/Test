@@ -86,8 +86,8 @@ const userSchema = new Schema(
   }
 );
 
-// Create indexes for better query performance
-userSchema.index({ email: 1 }); // Already unique, but explicit index
+// ✅ ADD THESE INDEXES FOR PERFORMANCE:
+// Note: email index is automatically created by unique: true constraint
 userSchema.index({ 'workspaces.workspaceId': 1 }); // For workspace queries
 userSchema.index({ currentWorkspace: 1 }); // For current workspace lookups
 userSchema.index({ isEmailVerified: 1 }); // For filtering verified users

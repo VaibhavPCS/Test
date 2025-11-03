@@ -32,8 +32,7 @@ const AuthPanelLayout: React.FC<AuthPanelLayoutProps> = ({ children }) => {
               />
             </div>
             <div className="text-[28px] font-normal leading-normal text-transparent bg-clip-text bg-gradient-to-r from-[#f2761b] to-black drop-shadow-md whitespace-pre">
-              <p className="mb-0">Mathura Vrindavan </p>
-              <p>Development Authority</p>
+              <p className="mb-0">PCS Management{'\n'}System Tracker</p>
             </div>
           </div>
 

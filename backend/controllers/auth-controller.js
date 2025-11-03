@@ -128,7 +128,7 @@ const verifyEmail = async (req, res) => {
           { expiresIn: "24h" }
         );
 
-        // Set HTTP-only cookie for secure token storage
+        // Set HTTP-only cookie for secure token storage (backward compatibility)
         res.cookie('auth_token', authToken, {
           httpOnly: true,           // Not accessible via JavaScript
           secure: process.env.NODE_ENV === 'production', // HTTPS only in production
@@ -139,6 +139,7 @@ const verifyEmail = async (req, res) => {
 
         return res.status(200).json({
           message: "Registration completed successfully! Logging you in...",
+          token: authToken,
           user: {
             id: user._id,
             name: user.name,
@@ -168,7 +169,7 @@ const verifyEmail = async (req, res) => {
           { expiresIn: "24h" }
         );
 
-        // Set HTTP-only cookie for secure token storage
+        // Set HTTP-only cookie for secure token storage (backward compatibility)
         res.cookie('auth_token', authToken, {
           httpOnly: true,           // Not accessible via JavaScript
           secure: process.env.NODE_ENV === 'production', // HTTPS only in production
@@ -179,6 +180,7 @@ const verifyEmail = async (req, res) => {
 
         return res.status(200).json({
           message: "Login successful",
+          token: authToken,
           user: {
             id: user._id,
             name: user.name,

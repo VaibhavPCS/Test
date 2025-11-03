@@ -32,7 +32,7 @@ const navItems: NavItem[] = [
   },
   {
     name: 'Messages',
-    href: '/messages',
+    href: '/chat',
     icon: '/assets/8fa45b78e2676154445cac574d31fb27521e2ea2.svg', // Message icon
     badgeKey: 'messages',
   },
@@ -111,7 +111,7 @@ const VerticalSidebar = () => {
                 whiteSpace: 'pre-line'
               }}
             >
-              Mathura Vrindavan{'\n'}Development Authority
+              PCS Managament{'\n'}System Tracker
             </span>
           </div>
         </div>

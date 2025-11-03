@@ -63,6 +63,15 @@ const taskSchema = new Schema(
       trim: true,
       default: ''
     },
+    handoverAttachments: [
+      {
+        fileName: { type: String, required: true },
+        fileUrl: { type: String, required: true },
+        fileType: { type: String, enum: ['image', 'document'], required: true },
+        fileSize: { type: Number, required: true },
+        mimeType: { type: String, required: true }
+      }
+    ],
     isActive: {
       type: Boolean,
       default: true

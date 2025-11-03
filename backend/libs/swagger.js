@@ -13,7 +13,7 @@ const options = {
     info: {
       title: 'Project Management System API',
       version: '1.0.0',
-      description: 'Comprehensive API documentation for the Project Management System',
+      description: 'Comprehensive API documentation for the Project Management System. Authentication standard: use Authorization header with Bearer JWT. Cookie fallback (auth_token) remains during migration for backward compatibility.',
       contact: {
         name: 'PMS API Support',
         email: 'support@pms.com'
@@ -25,12 +25,12 @@ const options = {
     },
     servers: [
       {
-        url: 'http://localhost:5000/api-v1',
-        description: 'Development HTTP Server'
+        url: 'https://pms.upda.co.in:5001/api-v1',
+        description: 'Production HTTPS Server'
       },
       {
-        url: 'https://localhost:5443/api-v1',
-        description: 'Development HTTPS Server'
+        url: 'http://localhost:5000/api-v1',
+        description: 'Development HTTP Server'
       }
     ],
     components: {

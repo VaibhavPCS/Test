@@ -1,5 +1,7 @@
 import express from 'express';
 import { authenticateToken } from '../libs/auth-middleware.js';
+import upload, { uploadHandover } from '../libs/upload-middleware.js';
+import { handleUploadErrors } from '../libs/upload-middleware.js';
 import {
   createTask,
   getProjectTasks,
@@ -64,7 +66,7 @@ router.delete('/:taskId', deleteTask);
  *         schema:
  *           type: string
  *     requestBody:
- *       required: true
+ *       required: false
  *       content:
  *         application/json:
  *           schema:
@@ -72,6 +74,17 @@ router.delete('/:taskId', deleteTask);
  *             properties:
  *               handoverNotes:
  *                 type: string
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               handoverNotes:
+ *                 type: string
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
  *     responses:
  *       200:
  *         description: Handover notes updated successfully.
@@ -82,8 +95,19 @@ router.delete('/:taskId', deleteTask);
  *       404:
  *         description: Task not found.
  */
-router.patch('/:taskId/handover', updateHandoverNotes);
-router.post('/:taskId/handover', updateHandoverNotes);
+// Support multipart/form-data with attachments as well as JSON body
+router.patch(
+  '/:taskId/handover',
+  uploadHandover.array('attachments', 3),
+  handleUploadErrors,
+  updateHandoverNotes
+);
+router.post(
+  '/:taskId/handover',
+  uploadHandover.array('attachments', 3),
+  handleUploadErrors,
+  updateHandoverNotes
+);
 
 /**
  * @swagger

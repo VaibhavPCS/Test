@@ -23,6 +23,11 @@ const notificationSchema = new Schema(
         "project_updated",
         "member_joined",
         "member_left",
+        "meeting_invite",
+        "meeting_updated",
+        "meeting_cancelled",
+        "meeting_response",
+        "meeting_reminder",
       ],
       required: true,
     },
@@ -50,6 +55,10 @@ const notificationSchema = new Schema(
       inviteId: {
         type: Schema.Types.ObjectId,
         ref: "Invite",
+      },
+      meetingId: {
+        type: Schema.Types.ObjectId,
+        ref: "Meeting",
       },
     },
     isRead: {

@@ -10,7 +10,9 @@ import {
   addMemberToCategory,
   removeMemberFromCategory,
   changeMemberRoleInProject,
-  getUserProjectRole
+  getUserProjectRole,
+  getProjectStatisticsOverview,
+  getRecentProjects
 } from '../controllers/project-controller.js';
 
 const router = express.Router();
@@ -23,6 +25,97 @@ const router = express.Router();
  */
 
 router.use(authenticateToken);
+
+/**
+ * @swagger
+ * /projects/statistics/overview:
+ *   get:
+ *     summary: Get project statistics overview for dashboard
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Project statistics including total, ongoing, completed, and proposed counts.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 totalProjects:
+ *                   type: number
+ *                 ongoingProjects:
+ *                   type: number
+ *                 completedProjects:
+ *                   type: number
+ *                 proposedProjects:
+ *                   type: number
+ *                 projectsByStatus:
+ *                   type: object
+ *                   properties:
+ *                     ongoing:
+ *                       type: number
+ *                     completed:
+ *                       type: number
+ *                     proposed:
+ *                       type: number
+ *       401:
+ *         description: Unauthorized.
+ */
+router.get('/statistics/overview', getProjectStatisticsOverview);
+
+/**
+ * @swagger
+ * /projects/recent:
+ *   get:
+ *     summary: Get recent projects with filtering options
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [ongoing, completed, proposed]
+ *         description: Filter by project status
+ *       - in: query
+ *         name: projectType
+ *         schema:
+ *           type: string
+ *         description: Filter by project type
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: number
+ *           default: 25
+ *         description: Number of results to return
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           default: createdAt
+ *         description: Sort field
+ *     responses:
+ *       200:
+ *         description: List of recent projects with filtering applied.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 projects:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 totalCount:
+ *                   type: number
+ *                 userRole:
+ *                   type: string
+ *       401:
+ *         description: Unauthorized.
+ */
+router.get('/recent', getRecentProjects);
 
 /**
  * @swagger

@@ -469,6 +469,147 @@ const getWorkspaceProjects = async (req, res) => {
   }
 };
 
+// Get project statistics overview for dashboard
+const getProjectStatisticsOverview = async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const user = await User.findById(userId);
+    if (!user.currentWorkspace) {
+      return res.status(200).json({
+        totalProjects: 0,
+        ongoingProjects: 0,
+        completedProjects: 0,
+        proposedProjects: 0,
+        projectsByStatus: {
+          ongoing: 0,
+          completed: 0,
+          proposed: 0
+        }
+      });
+    }
+
+    let baseQuery = {
+      workspace: user.currentWorkspace,
+      isActive: true
+    };
+
+    // Role-based filtering
+    if (!['admin', 'super_admin'].includes(user.role)) {
+      // Regular users: Only see projects they are part of
+      baseQuery.$or = [
+        { creator: userId }, // Projects they created
+        { 'categories.members.userId': userId } // Projects they are assigned to
+      ];
+    }
+
+    // Get counts for each status
+    const [totalProjects, ongoingProjects, completedProjects, proposedProjects] = await Promise.all([
+      Project.countDocuments(baseQuery),
+      Project.countDocuments({ ...baseQuery, status: 'ongoing' }),
+      Project.countDocuments({ ...baseQuery, status: 'completed' }),
+      Project.countDocuments({ ...baseQuery, status: 'proposed' })
+    ]);
+
+    const statistics = {
+      totalProjects,
+      ongoingProjects,
+      completedProjects,
+      proposedProjects,
+      projectsByStatus: {
+        ongoing: ongoingProjects,
+        completed: completedProjects,
+        proposed: proposedProjects
+      }
+    };
+
+    res.status(200).json(statistics);
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// Get recent projects with filtering options
+const getRecentProjects = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { status, projectType, limit = 25, sortBy = 'createdAt' } = req.query;
+
+    const user = await User.findById(userId);
+    if (!user.currentWorkspace) {
+      return res.status(200).json({ 
+        projects: [], 
+        totalCount: 0, 
+        userRole: user.role 
+      });
+    }
+
+    let baseQuery = {
+      workspace: user.currentWorkspace,
+      isActive: true
+    };
+
+    // Role-based filtering
+    if (!['admin', 'super_admin'].includes(user.role)) {
+      // Regular users: Only see projects they are part of
+      baseQuery.$or = [
+        { creator: userId }, // Projects they created
+        { 'categories.members.userId': userId } // Projects they are assigned to
+      ];
+    }
+
+    // Apply filters
+    if (status) {
+      baseQuery.status = status;
+    }
+
+    if (projectType) {
+      baseQuery.projectType = projectType;
+    }
+
+    // Get projects with pagination and sorting
+    const projects = await Project.find(baseQuery)
+      .populate('creator', 'name email')
+      .populate('categories.members.userId', 'name email')
+      .sort({ [sortBy]: -1 })
+      .limit(parseInt(limit));
+
+    // Get total count for pagination
+    const totalCount = await Project.countDocuments(baseQuery);
+
+    // Format response to match frontend expectations
+    const formattedProjects = projects.map(project => ({
+      _id: project._id,
+      propertyId: project.propertyId || `PP${project._id.toString().slice(-3)}`,
+      title: project.title,
+      manager: project.creator,
+      projectType: project.projectType || 'General',
+      department: {
+        name: project.department || 'General'
+      },
+      startDate: project.startDate,
+      endDate: project.endDate,
+      status: project.status,
+      description: project.description,
+      categories: project.categories,
+      createdAt: project.createdAt,
+      updatedAt: project.updatedAt
+    }));
+
+    res.status(200).json({
+      projects: formattedProjects,
+      totalCount,
+      userRole: user.role
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
 export {
   createProject,
   getWorkspaceProjects,
@@ -479,5 +620,7 @@ export {
   addMemberToCategory,
   removeMemberFromCategory,
   changeMemberRoleInProject,
-  getUserProjectRole
+  getUserProjectRole,
+  getProjectStatisticsOverview,
+  getRecentProjects
 };

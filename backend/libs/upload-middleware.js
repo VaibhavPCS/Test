@@ -4,14 +4,13 @@ import fs from 'fs';
 import crypto from 'crypto';
 
 // Ensure upload directories exist
-const createUploadDirs = () => {
+const ensureDirs = (base) => {
     const dirs = [
         'uploads',
-        'uploads/comments',
-        'uploads/comments/images',
-        'uploads/comments/documents'
+        `${base}`,
+        `${base}/images`,
+        `${base}/documents`
     ];
-    
     dirs.forEach(dir => {
         if (!fs.existsSync(dir)) {
             fs.mkdirSync(dir, { recursive: true });
@@ -19,22 +18,23 @@ const createUploadDirs = () => {
     });
 };
 
-createUploadDirs();
-
-// Configure storage
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => {
-        const isImage = file.mimetype.startsWith('image/');
-        const subfolder = isImage ? 'images' : 'documents';
-        cb(null, `uploads/comments/${subfolder}`);
-    },
-    filename: (req, file, cb) => {
-        // Generate secure random filename to prevent directory traversal attacks
-        const randomName = crypto.randomBytes(16).toString('hex');
-        const extension = path.extname(file.originalname).toLowerCase();
-        cb(null, `${randomName}${extension}`);
-    }
-});
+// Factory to create storage per feature (comments, handover, etc.)
+const createStorage = (featureBase) => {
+    ensureDirs(featureBase);
+    return multer.diskStorage({
+        destination: (req, file, cb) => {
+            const isImage = file.mimetype.startsWith('image/');
+            const subfolder = isImage ? 'images' : 'documents';
+            cb(null, `${featureBase}/${subfolder}`);
+        },
+        filename: (req, file, cb) => {
+            // Generate secure random filename to prevent directory traversal attacks
+            const randomName = crypto.randomBytes(16).toString('hex');
+            const extension = path.extname(file.originalname).toLowerCase();
+            cb(null, `${randomName}${extension}`);
+        }
+    });
+};
 
 // Allowed file types with extensions and MIME types
 const allowedFileTypes = {
@@ -72,14 +72,44 @@ const fileFilter = (req, file, cb) => {
     cb(null, true);
 };
 
-// Configure multer
-const upload = multer({
-    storage,
+// Configure multer instances
+const uploadComments = multer({
+    storage: createStorage('uploads/comments'),
     fileFilter,
     limits: {
         fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024, // 5MB per file (configurable)
-        files: 3, // Max 3 files per comment
-        fieldSize: 1024 * 1024 // 1MB field size limit
+        files: 3,
+        fieldSize: 1024 * 1024
+    }
+});
+
+const uploadHandover = multer({
+    storage: createStorage('uploads/handover'),
+    fileFilter,
+    limits: {
+        fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024,
+        files: 3,
+        fieldSize: 1024 * 1024
+    }
+});
+
+const uploadMeetings = multer({
+    storage: createStorage('uploads/meetings'),
+    fileFilter,
+    limits: {
+        fileSize: parseInt(process.env.MAX_FILE_SIZE) || 10 * 1024 * 1024, // 10MB per file for meetings
+        files: 5,
+        fieldSize: 1024 * 1024
+    }
+});
+
+const uploadChatFiles = multer({
+    storage: createStorage('uploads/chats'),
+    fileFilter,
+    limits: {
+        fileSize: parseInt(process.env.MAX_CHAT_FILE_SIZE) || 10 * 1024 * 1024, // 10MB per file for chats
+        files: 10, // Allow up to 10 files per message
+        fieldSize: 1024 * 1024
     }
 });
 
@@ -120,4 +150,14 @@ export const handleUploadErrors = (err, req, res, next) => {
     next();
 };
 
-export default upload;
+// Backward compatible default export for comments
+export default uploadComments;
+
+// Named export for handover attachments
+export { uploadHandover };
+
+// Named export for meeting attachments
+export { uploadMeetings };
+
+// Named export for chat file attachments
+export { uploadChatFiles };

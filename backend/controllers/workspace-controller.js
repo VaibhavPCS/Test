@@ -18,6 +18,18 @@ const createWorkspace = async (req, res) => {
       return res.status(400).json({ message: "Workspace name is required" });
     }
 
+    // ✅ ADD PERMISSION CHECK: Only admin and super_admin can create workspaces
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    if (!['admin', 'super_admin'].includes(user.role)) {
+      return res.status(403).json({ 
+        message: "Permission denied. Only administrators can create workspaces." 
+      });
+    }
+
     // ✅ FIXED: Use 'createdBy' to match your model
     const workspace = await Workspace.create({
       name: name.trim(),
@@ -31,7 +43,7 @@ const createWorkspace = async (req, res) => {
     });
 
     // Add workspace to user
-    const user = await User.findById(userId);
+    //const user = await User.findById(userId);
     user.workspaces = user.workspaces || [];
     user.workspaces.push({
       workspaceId: workspace._id,
