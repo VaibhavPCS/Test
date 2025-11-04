@@ -171,9 +171,21 @@ const updateProject = async (req, res) => {
       return res.status(403).json({ message: "You don't have permission to update this project" });
     }
 
+    // If status is being updated, align progress with status mapping
+    if (typeof updates.status === 'string') {
+      const statusProgress = {
+        'Planning': 10,
+        'In Progress': 50,
+        'On Hold': 30,
+        'Completed': 100,
+        'Cancelled': 0
+      };
+      updates.progress = statusProgress[updates.status] ?? project.progress;
+    }
+
     const updatedProject = await Project.findByIdAndUpdate(
-      projectId, 
-      updates, 
+      projectId,
+      updates,
       { new: true }
     )
     .populate('creator', 'name email')
@@ -528,12 +540,15 @@ const getProjectStatisticsOverview = async (req, res) => {
       ];
     }
 
-    // Get counts for each status
+    // Get counts for each status (aligned with Project model enum)
+    // Model statuses: 'Planning', 'In Progress', 'On Hold', 'Completed', 'Cancelled'
+    // Dashboard cards: Total, Ongoing, Completed, Proposed
+    // Map: Ongoing -> 'In Progress'; Proposed -> 'Planning'
     const [totalProjects, ongoingProjects, completedProjects, proposedProjects] = await Promise.all([
       Project.countDocuments(baseQuery),
-      Project.countDocuments({ ...baseQuery, status: 'ongoing' }),
-      Project.countDocuments({ ...baseQuery, status: 'completed' }),
-      Project.countDocuments({ ...baseQuery, status: 'proposed' })
+      Project.countDocuments({ ...baseQuery, status: 'In Progress' }),
+      Project.countDocuments({ ...baseQuery, status: 'Completed' }),
+      Project.countDocuments({ ...baseQuery, status: 'Planning' })
     ]);
 
     const statistics = {
@@ -542,6 +557,7 @@ const getProjectStatisticsOverview = async (req, res) => {
       completedProjects,
       proposedProjects,
       projectsByStatus: {
+        // Keep keys for backward compatibility while using canonical status mapping
         ongoing: ongoingProjects,
         completed: completedProjects,
         proposed: proposedProjects

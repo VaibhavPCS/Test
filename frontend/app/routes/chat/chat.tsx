@@ -98,17 +98,17 @@ const Chat: React.FC = () => {
   }, [user]);
 
   const initializeSocket = () => {
-    const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
-      auth: {
-        token: localStorage.getItem('token')
-      }
-    });
-
-    // const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'https://pms.upda.co.in:5001', {
+    // const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000', {
     //   auth: {
     //     token: localStorage.getItem('token')
     //   }
     // });
+
+    const newSocket = io(import.meta.env.VITE_API_BASE_URL || 'https://pms.upda.co.in:5001', {
+      auth: {
+        token: localStorage.getItem('token')
+      }
+    });
 
     newSocket.on('connect', () => {
       console.log('Connected to Socket.IO server');

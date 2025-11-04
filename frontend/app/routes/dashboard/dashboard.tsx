@@ -103,7 +103,7 @@ interface Task {
 // ==================== MAIN COMPONENT ====================
 
 const Dashboard = () => {
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuth();
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [projectStats, setProjectStats] = useState<ProjectStatistics>({
@@ -350,7 +350,7 @@ const Dashboard = () => {
   };
 
   const handleViewProject = (projectId: string) => {
-    navigate(`/workspace/projects/${projectId}`);
+    navigate(`/project/${projectId}`);
   };
 
   // Format month and year for display
@@ -748,37 +748,39 @@ const Dashboard = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-[15px]">
-                      {/* Workspace Dropdown */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
-                          >
-                            <Building2 className="w-4 h-4" />
-                            {currentWorkspace?.name || "Workspace"}
-                            <ChevronDown className="w-3 h-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-[200px]">
-                          {workspaces.map((workspace) => (
-                            <DropdownMenuItem
-                              key={workspace._id}
-                              onClick={() => handleSwitchWorkspace(workspace._id)}
-                              className={cn(
-                                "cursor-pointer",
-                                currentWorkspace?._id === workspace._id && "bg-blue-50"
-                              )}
+                      {/* Workspace Dropdown (visible only to global admin) */}
+                      {user?.role === "admin" ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
                             >
-                              {workspace.name}
-                              {currentWorkspace?._id === workspace._id && (
-                                <span className="ml-auto text-blue-600">✓</span>
-                              )}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                              <Building2 className="w-4 h-4" />
+                              {currentWorkspace?.name || "Workspace"}
+                              <ChevronDown className="w-3 h-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-[200px]">
+                            {workspaces.map((workspace) => (
+                              <DropdownMenuItem
+                                key={workspace._id}
+                                onClick={() => handleSwitchWorkspace(workspace._id)}
+                                className={cn(
+                                  "cursor-pointer",
+                                  currentWorkspace?._id === workspace._id && "bg-blue-50"
+                                )}
+                              >
+                                {workspace.name}
+                                {currentWorkspace?._id === workspace._id && (
+                                  <span className="ml-auto text-blue-600">✓</span>
+                                )}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
 
                       {/* Project Type Filter - HIDDEN */}
                       {/* <DropdownMenu>
@@ -925,13 +927,7 @@ const Dashboard = () => {
                         </th>
                         <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
                           <div className="flex items-center gap-2">
-                            Start Date
-                            <Filter className="w-3 h-3" />
-                          </div>
-                        </th>
-                        <th className="text-left px-[16px] py-[12px] text-[12px] font-['Inter'] font-normal text-[rgba(0,0,0,0.6)]">
-                          <div className="flex items-center gap-2">
-                            End Date
+                            Duration
                             <Filter className="w-3 h-3" />
                           </div>
                         </th>
@@ -949,7 +945,7 @@ const Dashboard = () => {
                     <tbody>
                       {recentProjects.length === 0 ? (
                         <tr>
-                          <td colSpan={8} className="px-[16px] py-[14px] text-center text-[12px] font-['Inter'] text-black">
+                          <td colSpan={7} className="px-[16px] py-[14px] text-center text-[12px] font-['Inter'] text-black">
                             No projects found
                           </td>
                         </tr>
@@ -971,11 +967,15 @@ const Dashboard = () => {
                             <td className="px-[16px] py-[14px]">
                               <StatusBadge status={project.status} />
                             </td>
-                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-[#1a932e] tracking-[0.5px] whitespace-nowrap">
-                              {formatDate(project.startDate)}
-                            </td>
-                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-[#cd2812] tracking-[0.5px] whitespace-nowrap">
-                              {formatDate(project.endDate)}
+                            <td className="px-[16px] py-[14px]">
+                              <div className="flex flex-col gap-1">
+                                <div className="text-[12px] font-['Inter'] font-normal text-[#1a932e] tracking-[0.5px] whitespace-nowrap">
+                                  {formatDate(project.startDate)}
+                                </div>
+                                <div className="text-[12px] font-['Inter'] font-normal text-[#cd2812] tracking-[0.5px] whitespace-nowrap">
+                                  {formatDate(project.endDate)}
+                                </div>
+                              </div>
                             </td>
                             <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-semibold text-black tracking-[0.5px] whitespace-nowrap">
                               {calculateDaysBetween(project.startDate, project.endDate)} days
@@ -1096,8 +1096,9 @@ const Dashboard = () => {
                         return (
                           <div
                             key={task._id}
+                            onClick={() => navigate(`/task/${task._id}`)}
                             className={cn(
-                              "rounded-lg border border-gray-200 bg-white p-4 transition-all duration-200 hover:shadow-md hover:border-gray-300",
+                              "rounded-lg border border-gray-200 bg-white p-4 transition-all duration-200 hover:shadow-md hover:border-gray-300 cursor-pointer",
                               "flex gap-3 items-start"
                             )}
                           >
