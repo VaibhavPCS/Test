@@ -635,6 +635,126 @@ const getRecentProjects = async (req, res) => {
   }
 };
 
+// Upload attachments to existing project
+const uploadAttachments = async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const userId = req.userId;
+
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Check permission - only admin/super_admin or project members can upload
+    const user = await User.findById(userId);
+    const canUpload = ['admin', 'super_admin'].includes(user.role) ||
+                     project.creator.toString() === userId ||
+                     project.categories.some(cat =>
+                       cat.members.some(member => member.userId.toString() === userId)
+                     );
+
+    if (!canUpload) {
+      return res.status(403).json({ message: "You don't have permission to upload attachments" });
+    }
+
+    // Check attachment limit (max 10)
+    if (project.attachments.length >= 10) {
+      return res.status(400).json({ message: "Maximum 10 attachments allowed per project" });
+    }
+
+    // Calculate remaining slots
+    const remainingSlots = 10 - project.attachments.length;
+
+    // Handle file attachments
+    const attachments = [];
+    if (req.files && req.files.length > 0) {
+      // Only take files up to the limit
+      const filesToAdd = req.files.slice(0, remainingSlots);
+
+      filesToAdd.forEach(file => {
+        attachments.push({
+          filename: file.filename,
+          originalName: file.originalname,
+          path: file.path,
+          size: file.size,
+          mimeType: file.mimetype
+        });
+      });
+    }
+
+    if (attachments.length === 0) {
+      return res.status(400).json({ message: "No files provided" });
+    }
+
+    // Add attachments to project
+    project.attachments.push(...attachments);
+    await project.save();
+
+    const updatedProject = await Project.findById(projectId)
+      .populate('creator', 'name email')
+      .populate('workspace', 'name')
+      .populate('categories.members.userId', 'name email');
+
+    res.status(200).json({
+      message: `${attachments.length} attachment(s) uploaded successfully`,
+      project: updatedProject
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// Delete attachment from project
+const deleteAttachment = async (req, res) => {
+  try {
+    const { projectId, attachmentId } = req.params;
+    const userId = req.userId;
+
+    const project = await Project.findById(projectId);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Check permission - only admin/super_admin can delete attachments
+    const user = await User.findById(userId);
+    const canDelete = ['admin', 'super_admin'].includes(user.role);
+
+    if (!canDelete) {
+      return res.status(403).json({ message: "Only administrators can delete attachments" });
+    }
+
+    // Find and remove attachment
+    const attachmentIndex = project.attachments.findIndex(
+      att => att._id.toString() === attachmentId
+    );
+
+    if (attachmentIndex === -1) {
+      return res.status(404).json({ message: "Attachment not found" });
+    }
+
+    // Remove from array
+    project.attachments.splice(attachmentIndex, 1);
+    await project.save();
+
+    const updatedProject = await Project.findById(projectId)
+      .populate('creator', 'name email')
+      .populate('workspace', 'name')
+      .populate('categories.members.userId', 'name email');
+
+    res.status(200).json({
+      message: "Attachment deleted successfully",
+      project: updatedProject
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
 export {
   createProject,
   getWorkspaceProjects,
@@ -647,5 +767,7 @@ export {
   changeMemberRoleInProject,
   getUserProjectRole,
   getProjectStatisticsOverview,
-  getRecentProjects
+  getRecentProjects,
+  uploadAttachments,
+  deleteAttachment
 };

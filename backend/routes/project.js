@@ -13,7 +13,9 @@ import {
   changeMemberRoleInProject,
   getUserProjectRole,
   getProjectStatisticsOverview,
-  getRecentProjects
+  getRecentProjects,
+  uploadAttachments,
+  deleteAttachment
 } from '../controllers/project-controller.js';
 
 const router = express.Router();
@@ -474,5 +476,74 @@ router.delete('/:projectId/members', removeMemberFromCategory);
  *         description: Project, category, or member not found.
  */
 router.patch('/:projectId/categories/:categoryName/members/:memberId/role', changeMemberRoleInProject);
+
+/**
+ * @swagger
+ * /projects/{projectId}/attachments:
+ *   post:
+ *     summary: Upload attachments to a project (max 10 total)
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Attachments uploaded successfully.
+ *       400:
+ *         description: Bad request or max limit reached.
+ *       401:
+ *         description: Unauthorized.
+ *       403:
+ *         description: Forbidden.
+ */
+router.post('/:projectId/attachments', uploadProjects.array('attachments', 10), handleUploadErrors, uploadAttachments);
+
+/**
+ * @swagger
+ * /projects/{projectId}/attachments/{attachmentId}:
+ *   delete:
+ *     summary: Delete an attachment from project (admin only)
+ *     tags: [Projects]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: projectId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: attachmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Attachment deleted successfully.
+ *       401:
+ *         description: Unauthorized.
+ *       403:
+ *         description: Forbidden - admin only.
+ *       404:
+ *         description: Project or attachment not found.
+ */
+router.delete('/:projectId/attachments/:attachmentId', deleteAttachment);
 
 export default router;

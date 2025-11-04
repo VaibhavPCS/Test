@@ -459,17 +459,32 @@ const getTaskById = async (req, res) => {
 
     // Check access permissions
     const currentUser = await User.findById(userId);
-    const hasAccess = (
-      task.assignee._id.toString() === userId ||
-      task.creator._id.toString() === userId ||
-      ['admin', 'super_admin'].includes(currentUser.role)
-    );
 
-    if (!hasAccess) {
-      return res.status(403).json({ message: "Access denied" });
+    // Check if user is admin/super_admin
+    if (['admin', 'super_admin'].includes(currentUser.role)) {
+      return res.status(200).json({ task });
     }
 
-    res.status(200).json({ task });
+    // Check if user is assignee or creator
+    if (task.assignee._id.toString() === userId || task.creator._id.toString() === userId) {
+      return res.status(200).json({ task });
+    }
+
+    // Check if user is a lead in the task's category
+    const project = await Project.findById(task.project._id);
+    if (project) {
+      const taskCategory = project.categories.find(cat => cat.name === task.category);
+      if (taskCategory) {
+        const userMember = taskCategory.members.find(
+          member => member.userId.toString() === userId && member.role === 'Lead'
+        );
+        if (userMember) {
+          return res.status(200).json({ task });
+        }
+      }
+    }
+
+    return res.status(403).json({ message: "Access denied" });
   } catch (error) {
     console.error('Get task error:', error);
     res.status(500).json({ message: "Internal Server Error" });
