@@ -3,34 +3,35 @@ import User from '../models/user.js';
 import Project from '../models/project.js';
 import { createNotification } from './notification-controller.js';
 
-// ✅ UPDATED: Create task with startDate validation
+// ✅ UPDATED: Create task with optional assignee and new project structure
 const createTask = async (req, res) => {
   try {
-    const { title, description, status, priority, assigneeId, projectId, category, startDate, dueDate } = req.body;
+    const { title, description, status, priority, assigneeId, projectId, startDate, dueDate } = req.body;
     const userId = req.userId;
 
-    // ✅ NEW: Validate dates
+    // ✅ Validate dates
     if (!startDate) {
       return res.status(400).json({ message: "Start date is required" });
     }
     if (!dueDate) {
       return res.status(400).json({ message: "Due date is required" });
     }
-    
+
     const start = new Date(startDate);
     const end = new Date(dueDate);
-    
+
     if (isNaN(start.getTime()) || isNaN(end.getTime())) {
       return res.status(400).json({ message: "Invalid date format" });
     }
-    
+
     if (start > end) {
       return res.status(400).json({ message: "Start date cannot be after due date" });
     }
 
     // Verify project exists and user has access
     const project = await Project.findById(projectId)
-      .populate('categories.members.userId', 'email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
@@ -38,36 +39,26 @@ const createTask = async (req, res) => {
 
     // Get current user details
     const currentUser = await User.findById(userId);
-    
-    // Find user's category in this project
-    const userCategory = project.categories.find(cat => 
-      cat.members.some(member => member.userId._id.toString() === userId)
-    );
 
-    if (!userCategory) {
-      return res.status(403).json({ message: "You are not a member of this project" });
+    // ✅ Check if user is project head or admin (only they can create tasks)
+    const isProjectHead = project.projectHead._id.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can create tasks" });
     }
 
-    // Check assignment permissions
-    const assigneeUser = await User.findById(assigneeId);
-    if (!assigneeUser) {
-      return res.status(404).json({ message: "Assignee not found" });
-    }
+    // ✅ NEW: If assignee provided, verify they're in the project
+    if (assigneeId) {
+      const assigneeInProject = project.members.some(m => m.userId._id.toString() === assigneeId) ||
+                                project.projectHead._id.toString() === assigneeId;
 
-    // Permission check: Admin/Super_admin can assign to anyone, others only to their category
-    if (!['admin', 'super_admin'].includes(currentUser.role)) {
-      // Check if assignee is in the same category as the creator
-      const assigneeInCategory = project.categories.find(cat => 
-        cat.name === userCategory.name && 
-        cat.members.some(member => member.userId._id.toString() === assigneeId)
-      );
-
-      if (!assigneeInCategory) {
-        return res.status(403).json({ message: "You can only assign tasks to members of your category" });
+      if (!assigneeInProject && !isAdmin) {
+        return res.status(400).json({ message: "Assignee must be a member of this project" });
       }
     }
 
-    // ✅ NEW: Compute duration in days (inclusive)
+    // ✅ Compute duration in days (inclusive)
     const msPerDay = 1000 * 60 * 60 * 24;
     const durationDays = Math.max(1, Math.ceil((end - start) / msPerDay) + 1);
 
@@ -75,15 +66,15 @@ const createTask = async (req, res) => {
     const task = await Task.create({
       title,
       description,
-      status,
-      priority,
-      assignee: assigneeId,
+      status: status || 'to-do',
+      priority: priority || 'medium',
+      assignee: assigneeId || null,
       creator: userId,
       project: projectId,
-      category: userCategory.name,
       startDate: start,
       dueDate: end,
-      durationDays
+      durationDays,
+      approvalStatus: 'not-required' // ✅ Default approval status
     });
 
     const populatedTask = await Task.findById(task._id)
@@ -91,7 +82,8 @@ const createTask = async (req, res) => {
       .populate('creator', 'name email')
       .populate('project', 'title');
 
-    if (assigneeId !== userId) {
+    // Send notification only if assignee is different from creator
+    if (assigneeId && assigneeId !== userId) {
       await createNotification({
         recipient: assigneeId,
         sender: userId,
@@ -116,13 +108,14 @@ const createTask = async (req, res) => {
   }
 };
 
+// ✅ UPDATED: Handle approval workflow when marking task as done
 const updateTaskStatus = async (req, res) => {
   try {
     const { taskId } = req.params;
     const { status } = req.body;
     const userId = req.userId;
 
-    console.log('Updating task status:', { taskId, status, userId }); // Debug log
+    console.log('Updating task status:', { taskId, status, userId });
 
     if (!status) {
       return res.status(400).json({ message: "Status is required" });
@@ -132,15 +125,15 @@ const updateTaskStatus = async (req, res) => {
       return res.status(400).json({ message: "Invalid status" });
     }
 
-    const task = await Task.findById(taskId);
+    const task = await Task.findById(taskId).populate('project');
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
 
     // Check permissions
     const currentUser = await User.findById(userId);
-    const canUpdate = 
-      task.assignee.toString() === userId ||
+    const canUpdate =
+      (task.assignee && task.assignee.toString() === userId) ||
       task.creator.toString() === userId ||
       ['admin', 'super_admin'].includes(currentUser.role);
 
@@ -148,10 +141,38 @@ const updateTaskStatus = async (req, res) => {
       return res.status(403).json({ message: "Permission denied to update this task" });
     }
 
-    // Update task
+    // ✅ NEW: When marking as done, trigger approval workflow
     const updates = { status };
+
     if (status === 'done') {
       updates.completedAt = new Date();
+      updates.completedBy = userId;
+      updates.approvalStatus = 'pending-approval';
+
+      // ✅ Send notification to project head for approval
+      const project = await Project.findById(task.project._id);
+      if (project && project.projectHead.toString() !== userId) {
+        try {
+          await createNotification({
+            recipient: project.projectHead,
+            sender: userId,
+            type: 'task_approval_pending',
+            title: 'Task Pending Approval',
+            message: `Task "${task.title}" has been marked as done and needs your approval`,
+            data: {
+              taskId: taskId,
+              projectId: task.project._id
+            }
+          });
+        } catch (notifError) {
+          console.error('Notification error:', notifError);
+        }
+      }
+    } else if (status === 'in-progress') {
+      // Reset approval status if task is put back to in-progress
+      updates.approvalStatus = 'not-required';
+      updates.completedBy = null;
+      updates.completedAt = null;
     }
 
     const updatedTask = await Task.findByIdAndUpdate(
@@ -161,10 +182,11 @@ const updateTaskStatus = async (req, res) => {
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
+    .populate('completedBy', 'name email')
     .populate('project', 'title');
 
     // Send notification if status changed by someone else
-    if (userId !== task.assignee.toString()) {
+    if (task.assignee && userId !== task.assignee.toString()) {
       try {
         await createNotification({
           recipient: task.assignee,
@@ -174,7 +196,7 @@ const updateTaskStatus = async (req, res) => {
           message: `Your task "${task.title}" status changed to ${status.replace('-', ' ')}`,
           data: {
             taskId: taskId,
-            projectId: task.project
+            projectId: task.project._id
           }
         });
       } catch (notifError) {
@@ -260,24 +282,45 @@ const updateHandoverNotes = async (req, res) => {
   }
 };
 
+// ✅ UPDATED: Filter tasks based on approval status and user role
 const getProjectTasks = async (req, res) => {
   try {
     const { projectId } = req.params;
     const userId = req.userId;
 
     // Verify project access
-    const project = await Project.findById(projectId);
+    const project = await Project.findById(projectId)
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
+
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    const tasks = await Task.find({ 
+    // Get current user details
+    const currentUser = await User.findById(userId);
+
+    // ✅ Check if user is project head or admin
+    const isProjectHead = project.projectHead._id.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+
+    // ✅ Filter query based on role
+    let query = {
       project: projectId,
-      isActive: true 
-    })
-    .populate('assignee', 'name email')
-    .populate('creator', 'name email')
-    .sort({ createdAt: -1 });
+      isActive: true
+    };
+
+    // ✅ Regular members don't see approved tasks
+    if (!isProjectHead && !isAdmin) {
+      query.approvalStatus = { $ne: 'approved' };
+    }
+
+    const tasks = await Task.find(query)
+      .populate('assignee', 'name email')
+      .populate('creator', 'name email')
+      .populate('completedBy', 'name email')
+      .populate('approvedBy', 'name email')
+      .sort({ createdAt: -1 });
 
     res.status(200).json({ tasks });
 
@@ -381,59 +424,48 @@ const updateTask = async (req, res) => {
   }
 };
 
-// Get assignable members for task creation
+// ✅ UPDATED: Get assignable members with new project structure
 const getAssignableMembers = async (req, res) => {
   try {
     const { projectId } = req.params;
     const userId = req.userId;
 
     const project = await Project.findById(projectId)
-      .populate('categories.members.userId', 'name email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
     const currentUser = await User.findById(userId);
-    
-    // If admin/super_admin, return all project members
-    if (['admin', 'super_admin'].includes(currentUser.role)) {
-      const allMembers = project.categories.reduce((acc, category) => {
-        category.members.forEach(member => {
-          if (!acc.find(m => m._id.toString() === member.userId._id.toString())) {
-            acc.push({
-              _id: member.userId._id,
-              name: member.userId.name,
-              email: member.userId.email,
-              category: category.name,
-              role: member.role
-            });
-          }
-        });
-        return acc;
-      }, []);
 
-      return res.status(200).json({ members: allMembers });
-    }
+    // ✅ Check if user has access to this project
+    const isProjectHead = project.projectHead._id.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+    const isMember = project.members.some(m => m.userId._id.toString() === userId);
 
-    // Find user's category and return only those members
-    const userCategory = project.categories.find(cat => 
-      cat.members.some(member => member.userId._id.toString() === userId)
-    );
-
-    if (!userCategory) {
+    if (!isProjectHead && !isAdmin && !isMember) {
       return res.status(403).json({ message: "You are not a member of this project" });
     }
 
-    const categoryMembers = userCategory.members.map(member => ({
-      _id: member.userId._id,
-      name: member.userId.name,
-      email: member.userId.email,
-      category: userCategory.name,
-      role: member.role
-    }));
+    // ✅ Return all project members including project head
+    const allMembers = [
+      {
+        _id: project.projectHead._id,
+        name: project.projectHead.name,
+        email: project.projectHead.email,
+        role: 'project-head'
+      },
+      ...project.members.map(member => ({
+        _id: member.userId._id,
+        name: member.userId.name,
+        email: member.userId.email,
+        role: 'member'
+      }))
+    ];
 
-    res.status(200).json({ members: categoryMembers });
+    res.status(200).json({ members: allMembers });
 
   } catch (error) {
     console.log(error);
@@ -441,6 +473,7 @@ const getAssignableMembers = async (req, res) => {
   }
 };
 
+// ✅ UPDATED: Access control with new project structure
 const getTaskById = async (req, res) => {
   try {
     const { taskId } = req.params;
@@ -451,6 +484,8 @@ const getTaskById = async (req, res) => {
     const task = await Task.findById(taskId)
       .populate('assignee', 'name email')
       .populate('creator', 'name email')
+      .populate('completedBy', 'name email')
+      .populate('approvedBy', 'name email')
       .populate('project', 'title');
 
     if (!task) {
@@ -466,21 +501,22 @@ const getTaskById = async (req, res) => {
     }
 
     // Check if user is assignee or creator
-    if (task.assignee._id.toString() === userId || task.creator._id.toString() === userId) {
+    if ((task.assignee && task.assignee._id.toString() === userId) ||
+        task.creator._id.toString() === userId) {
       return res.status(200).json({ task });
     }
 
-    // Check if user is a lead in the task's category
-    const project = await Project.findById(task.project._id);
+    // ✅ Check if user is project head or member
+    const project = await Project.findById(task.project._id)
+      .populate('projectHead')
+      .populate('members.userId');
+
     if (project) {
-      const taskCategory = project.categories.find(cat => cat.name === task.category);
-      if (taskCategory) {
-        const userMember = taskCategory.members.find(
-          member => member.userId.toString() === userId && member.role === 'Lead'
-        );
-        if (userMember) {
-          return res.status(200).json({ task });
-        }
+      const isProjectHead = project.projectHead._id.toString() === userId;
+      const isMember = project.members.some(m => m.userId._id.toString() === userId);
+
+      if (isProjectHead || isMember) {
+        return res.status(200).json({ task });
       }
     }
 
@@ -549,6 +585,168 @@ const deleteTask = async (req, res) => {
   }
 };
 
+// ✅ NEW: Approve task (only project head or admin)
+const approveTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const userId = req.userId;
+
+    console.log('Approving task:', { taskId, userId });
+
+    const task = await Task.findById(taskId).populate('project');
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    // Check if task is pending approval
+    if (task.approvalStatus !== 'pending-approval') {
+      return res.status(400).json({ message: "Task is not pending approval" });
+    }
+
+    // Get project details
+    const project = await Project.findById(task.project._id);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Check permissions - only project head or admin can approve
+    const currentUser = await User.findById(userId);
+    const isProjectHead = project.projectHead.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can approve tasks" });
+    }
+
+    // Update task with approval
+    const updatedTask = await Task.findByIdAndUpdate(
+      taskId,
+      {
+        approvalStatus: 'approved',
+        approvedBy: userId,
+        approvedAt: new Date()
+      },
+      { new: true }
+    )
+    .populate('assignee', 'name email')
+    .populate('creator', 'name email')
+    .populate('completedBy', 'name email')
+    .populate('approvedBy', 'name email')
+    .populate('project', 'title');
+
+    // Send notification to task assignee
+    if (task.assignee) {
+      try {
+        await createNotification({
+          recipient: task.assignee,
+          sender: userId,
+          type: 'task_approved',
+          title: 'Task Approved',
+          message: `Your task "${task.title}" has been approved`,
+          data: {
+            taskId: taskId,
+            projectId: task.project._id
+          }
+        });
+      } catch (notifError) {
+        console.error('Notification error:', notifError);
+      }
+    }
+
+    res.status(200).json({
+      message: "Task approved successfully",
+      task: updatedTask
+    });
+
+  } catch (error) {
+    console.error('Approve task error:', error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ NEW: Reject task (only project head or admin)
+const rejectTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { reason } = req.body;
+    const userId = req.userId;
+
+    console.log('Rejecting task:', { taskId, userId, reason });
+
+    const task = await Task.findById(taskId).populate('project');
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    // Check if task is pending approval
+    if (task.approvalStatus !== 'pending-approval') {
+      return res.status(400).json({ message: "Task is not pending approval" });
+    }
+
+    // Get project details
+    const project = await Project.findById(task.project._id);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Check permissions - only project head or admin can reject
+    const currentUser = await User.findById(userId);
+    const isProjectHead = project.projectHead.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can reject tasks" });
+    }
+
+    // Update task with rejection
+    const updatedTask = await Task.findByIdAndUpdate(
+      taskId,
+      {
+        status: 'in-progress', // ✅ Move back to in-progress
+        approvalStatus: 'rejected',
+        approvedBy: userId,
+        approvedAt: new Date(),
+        rejectionReason: reason || 'No reason provided',
+        completedAt: null,
+        completedBy: null
+      },
+      { new: true }
+    )
+    .populate('assignee', 'name email')
+    .populate('creator', 'name email')
+    .populate('approvedBy', 'name email')
+    .populate('project', 'title');
+
+    // Send notification to task assignee
+    if (task.assignee) {
+      try {
+        await createNotification({
+          recipient: task.assignee,
+          sender: userId,
+          type: 'task_rejected',
+          title: 'Task Rejected',
+          message: `Your task "${task.title}" has been rejected. Reason: ${reason || 'No reason provided'}`,
+          data: {
+            taskId: taskId,
+            projectId: task.project._id
+          }
+        });
+      } catch (notifError) {
+        console.error('Notification error:', notifError);
+      }
+    }
+
+    res.status(200).json({
+      message: "Task rejected successfully",
+      task: updatedTask
+    });
+
+  } catch (error) {
+    console.error('Reject task error:', error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
 export {
   createTask,
   getProjectTasks,
@@ -556,7 +754,9 @@ export {
   updateTask,
   updateTaskStatus,
   updateHandoverNotes,
-  getTaskById,         
+  getTaskById,
   getAssignableMembers,
-  deleteTask  // ✅ NEW: Add delete export
+  deleteTask,
+  approveTask,  // ✅ NEW: Add approve export
+  rejectTask    // ✅ NEW: Add reject export
 };

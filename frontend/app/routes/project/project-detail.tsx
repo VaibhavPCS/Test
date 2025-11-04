@@ -133,6 +133,7 @@ interface Project {
   startDate: string;
   endDate: string;
   progress: number;
+  projectHead?: { _id: string; name: string; email: string };
   categories: Array<{
     name: string;
     members: Array<{
@@ -457,10 +458,10 @@ const CalendarViewComponent: React.FC<CalendarViewProps> = ({
             <div className="flex items-center gap-1 min-w-0">
               <Avatar className="w-2.5 h-2.5">
                 <AvatarFallback className="bg-current bg-opacity-20 text-current text-[8px] font-bold">
-                  {task.assignee.name.charAt(0)}
+                  {(task.assignee?.name?.charAt(0) || task.assignee?.email?.charAt(0) || "?")}
                 </AvatarFallback>
               </Avatar>
-              <span className="truncate text-[10px]">{task.assignee.name.split(" ")[0]}</span>
+              <span className="truncate text-[10px]">{(task.assignee?.name || task.assignee?.email || "?").split(" ")[0]}</span>
             </div>
 
             {task.durationDays && task.durationDays > 1 && (
@@ -782,9 +783,13 @@ const TaskCard = React.memo<{
   const canManageTask = useMemo(() => {
     if (!currentUser) return false;
 
+    const currentUserIdStr = (currentUser.id || currentUser._id || "").toString();
+    const assigneeIdStr = task.assignee?._id?.toString() || "";
+    const creatorIdStr = task.creator?._id?.toString() || "";
+
     return (
-      task.assignee._id === (currentUser.id || currentUser._id) ||
-      task.creator._id === (currentUser.id || currentUser._id) ||
+      assigneeIdStr === currentUserIdStr ||
+      creatorIdStr === currentUserIdStr ||
       ["admin", "super_admin"].includes(currentUser.role || userRole || "")
     );
   }, [currentUser, task, userRole]);
@@ -912,10 +917,10 @@ const TaskCard = React.memo<{
             <div className="flex items-center gap-1.5 min-w-0">
               <Avatar className="w-4 h-4">
                 <AvatarFallback className="bg-blue-100 text-blue-700 font-medium text-xs">
-                  {task.assignee.name.charAt(0)}
+                  {(task.assignee?.name?.charAt(0) || task.assignee?.email?.charAt(0) || "?")}
                 </AvatarFallback>
               </Avatar>
-              <span className="truncate">{task.assignee.name.split(" ")[0]}</span>
+              <span className="truncate">{(task.assignee?.name || task.assignee?.email || "?").split(" ")[0]}</span>
             </div>
             <div className="flex items-center gap-1 flex-shrink-0">
               <Clock className="w-3 h-3" />
@@ -1269,34 +1274,37 @@ const ProjectDetail = () => {
       tasksToShow = allTasks;
     } else if (
       (currentUser.role || userRole) === "lead" ||
-      project?.categories.some((cat) =>
-        cat.members.some(
-          (member) =>
-            member.userId._id.toString() === (currentUser?.id || currentUser?._id)?.toString() &&
-            member.role === "Lead"
-        )
+      project?.categories?.some((cat) =>
+        cat.members?.some((member) => {
+          const memberIdStr = member.userId?._id?.toString() || "";
+          const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
+          return memberIdStr === currentUserIdStr && member.role === "Lead";
+        })
       )
     ) {
-      const userCategory = project?.categories.find((cat) =>
-        cat.members.some(
-          (member) =>
-            member.userId._id.toString() === (currentUser?.id || currentUser?._id || "").toString()
-        )
+      const userCategory = project?.categories?.find((cat) =>
+        cat.members?.some((member) => {
+          const memberIdStr = member.userId?._id?.toString() || "";
+          const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
+          return memberIdStr === currentUserIdStr;
+        })
       );
 
       if (userCategory) {
-        const categoryMemberIds = userCategory.members.map((m) => m.userId._id.toString());
+        const categoryMemberIds = userCategory.members
+          .map((m) => m.userId?._id?.toString() || "")
+          .filter(Boolean);
         tasksToShow = allTasks.filter(
           (task) =>
-            categoryMemberIds.includes(task.assignee._id.toString()) ||
-            categoryMemberIds.includes(task.creator._id.toString())
+            categoryMemberIds.includes(task.assignee?._id?.toString() || "") ||
+            categoryMemberIds.includes(task.creator?._id?.toString() || "")
         );
       }
     } else {
       tasksToShow = allTasks.filter(
         (task) =>
-          task.assignee._id.toString() === (currentUser?.id || currentUser?._id || "").toString() ||
-          task.creator._id.toString() === (currentUser?.id || currentUser?._id || "").toString()
+          (task.assignee?._id?.toString() || "") === (currentUser?.id || currentUser?._id || "").toString() ||
+          (task.creator?._id?.toString() || "") === (currentUser?.id || currentUser?._id || "").toString()
       );
     }
 
@@ -1317,9 +1325,9 @@ const ProjectDetail = () => {
     const relevantTasks = ["admin", "super-admin"].includes(userRole)
       ? allTasks
       : ["lead"].includes(userRole) ||
-          project?.categories.some((cat) =>
-            cat.members.some(
-              (member) => member.userId._id === currentUser?._id && member.role === "Lead"
+          project?.categories?.some((cat) =>
+            cat.members?.some(
+              (member) => member.userId?._id === (currentUser?.id || currentUser?._id) && member.role === "Lead"
             )
           )
         ? kanbanFilteredTasks
@@ -1353,10 +1361,10 @@ const ProjectDetail = () => {
   const canCreateTask = useMemo(() => {
     return (
       ["admin", "super-admin"].includes(userRole) ||
-      project?.categories.some((cat) =>
-        cat.members.some(
+      project?.categories?.some((cat) =>
+        cat.members?.some(
           (member) =>
-            member.userId._id === currentUser?._id && ["Lead", "Member"].includes(member.role)
+            member.userId?._id === (currentUser?.id || currentUser?._id) && ["Lead", "Member"].includes(member.role)
         )
       ) ||
       project?.creator._id === currentUser?._id
@@ -1805,6 +1813,7 @@ const ProjectDetail = () => {
           <div className="w-[589px] mx-auto flex-shrink-0">
             <ProjectOverviewPanel
               projectManager={project.creator.name}
+              projectHead={project.projectHead?.name}
               description={project.description}
               startDate={project.startDate}
               endDate={project.endDate}
@@ -2264,9 +2273,9 @@ const ProjectDetail = () => {
                       <SelectItem key={member._id} value={member._id}>
                         <div className="flex items-center gap-2">
                           <Avatar className="w-4 h-4">
-                            <AvatarFallback className="text-xs">{member.name.charAt(0)}</AvatarFallback>
+                            <AvatarFallback className="text-xs">{(member.name?.charAt(0) || member.email?.charAt(0) || "?")}</AvatarFallback>
                           </Avatar>
-                          <span className="text-sm">{member.name}</span>
+                          <span className="text-sm">{member.name || member.email || "Unknown"}</span>
                         </div>
                       </SelectItem>
                     ))}

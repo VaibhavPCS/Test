@@ -2,10 +2,10 @@ import Project from '../models/project.js';
 import User from '../models/user.js';
 import Workspace from '../models/workspace.js';
 
-// Create project
+// ✅ UPDATED: Create project with projectHead and members
 const createProject = async (req, res) => {
   try {
-    const { title, description, status, startDate, endDate, categories } = req.body;
+    const { title, description, status, startDate, endDate, projectHeadId } = req.body;
     const userId = req.userId;
 
     // Get user's current workspace
@@ -14,34 +14,20 @@ const createProject = async (req, res) => {
       return res.status(400).json({ message: "No active workspace found" });
     }
 
-    // Parse categories if it's a string (from multipart/form-data)
-    let parsedCategories = categories;
-    if (typeof categories === 'string') {
-      try {
-        parsedCategories = JSON.parse(categories);
-      } catch (error) {
-        return res.status(400).json({ message: "Invalid categories format" });
-      }
+    // ✅ Verify project head exists and is in workspace
+    if (!projectHeadId) {
+      return res.status(400).json({ message: "Project head is required" });
     }
 
-    // Verify all category members exist and are in workspace
-    for (const category of parsedCategories) {
-      for (const member of category.members) {
-        const memberUser = await User.findOne({
-          email: member.email,
-          'workspaces.workspaceId': user.currentWorkspace
-        });
+    const workspace = await Workspace.findById(user.currentWorkspace);
+    const projectHeadInWorkspace = workspace.members.some(
+      m => m.userId.toString() === projectHeadId
+    );
 
-        if (!memberUser) {
-          return res.status(400).json({
-            message: `User ${member.email} is not found or not in workspace`
-          });
-        }
-
-        // Replace email with userId
-        member.userId = memberUser._id;
-        delete member.email;
-      }
+    if (!projectHeadInWorkspace) {
+      return res.status(400).json({
+        message: "Project head must be a member of the workspace"
+      });
     }
 
     // Handle file attachments
@@ -58,23 +44,25 @@ const createProject = async (req, res) => {
       });
     }
 
-    // Create project
+    // ✅ Create project with new structure
     const project = await Project.create({
       title,
       description,
-      status,
+      status: status || 'Planning',
       startDate,
       endDate,
       workspace: user.currentWorkspace,
       creator: userId,
-      categories: parsedCategories,
+      projectHead: projectHeadId,
+      members: [], // ✅ Start with empty members, project head can add them later
       attachments
     });
 
     const populatedProject = await Project.findById(project._id)
       .populate('creator', 'name email')
       .populate('workspace', 'name')
-      .populate('categories.members.userId', 'name email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     res.status(201).json({
       message: "Project created successfully",
@@ -87,7 +75,7 @@ const createProject = async (req, res) => {
   }
 };
 
-// Get single project details
+// ✅ UPDATED: Get project details with new structure
 const getProjectDetails = async (req, res) => {
   try {
     const { projectId } = req.params;
@@ -96,7 +84,8 @@ const getProjectDetails = async (req, res) => {
     const project = await Project.findById(projectId)
       .populate('creator', 'name email')
       .populate('workspace', 'name')
-      .populate('categories.members.userId', 'name email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
@@ -148,7 +137,7 @@ const getWorkspaceMembers = async (req, res) => {
 const updateProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const updates = req.body;
+    const updates = req.body || {};
     const userId = req.userId;
 
     const project = await Project.findById(projectId);
@@ -156,16 +145,13 @@ const updateProject = async (req, res) => {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    // Check if user can update this project (creator, admin, or super_admin)
+    // Check if user can update this project
     const user = await User.findById(userId);
-    const canUpdate = project.creator.toString() === userId || 
-                     ['admin', 'super_admin'].includes(user.role) ||
-                     project.categories.some(cat => 
-                       cat.members.some(member => 
-                         member.userId.toString() === userId && 
-                         ['Lead', 'Admin'].includes(member.role)
-                       )
-                     );
+    const isCreator = project.creator?.toString() === userId;
+    const isProjectHead = project.projectHead?.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(user?.role);
+    // In the new structure, members don't have roles; restrict updates to creator, project head, or admin
+    const canUpdate = isCreator || isProjectHead || isAdmin;
 
     if (!canUpdate) {
       return res.status(403).json({ message: "You don't have permission to update this project" });
@@ -188,9 +174,10 @@ const updateProject = async (req, res) => {
       updates,
       { new: true }
     )
-    .populate('creator', 'name email')
-    .populate('workspace', 'name')
-    .populate('categories.members.userId', 'name email');
+      .populate('creator', 'name email')
+      .populate('workspace', 'name')
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     res.status(200).json({
       message: "Project updated successfully",
@@ -234,29 +221,31 @@ const deleteProject = async (req, res) => {
   }
 };
 
-// Add member to project category
-const addMemberToCategory = async (req, res) => {
+// ✅ UPDATED: Add member to project (only project head or admin)
+const addMemberToProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { categoryName, memberEmail, role } = req.body;
+    const { memberEmail } = req.body;
     const userId = req.userId;
 
-    const project = await Project.findById(projectId);
+    const project = await Project.findById(projectId)
+      .populate('projectHead');
+
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    // Check permission
+    // ✅ Check permission - only project head or admin can add members
     const user = await User.findById(userId);
-    const canAddMember = ['admin', 'super_admin'].includes(user.role) ||
-                        project.creator.toString() === userId;
+    const isProjectHead = project.projectHead._id.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(user.role);
 
-    if (!canAddMember) {
-      return res.status(403).json({ message: "You don't have permission to add members" });
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can add members" });
     }
 
     // Find the member to add
-    const memberToAdd = await User.findOne({ 
+    const memberToAdd = await User.findOne({
       email: memberEmail,
       'workspaces.workspaceId': project.workspace
     });
@@ -265,25 +254,23 @@ const addMemberToCategory = async (req, res) => {
       return res.status(404).json({ message: "Member not found in workspace" });
     }
 
-    // Find the category
-    const categoryIndex = project.categories.findIndex(cat => cat.name === categoryName);
-    if (categoryIndex === -1) {
-      return res.status(404).json({ message: "Category not found" });
+    // Check if user is already project head
+    if (project.projectHead._id.toString() === memberToAdd._id.toString()) {
+      return res.status(400).json({ message: "User is already the project head" });
     }
 
-    // Check if member is already in this category
-    const isAlreadyMember = project.categories[categoryIndex].members.some(
+    // Check if member is already in project
+    const isAlreadyMember = project.members.some(
       member => member.userId.toString() === memberToAdd._id.toString()
     );
 
     if (isAlreadyMember) {
-      return res.status(400).json({ message: "Member is already in this category" });
+      return res.status(400).json({ message: "Member is already in this project" });
     }
 
-    // Add member to category
-    project.categories[categoryIndex].members.push({
-      userId: memberToAdd._id,
-      role: role || 'Member'
+    // ✅ Add member to project (no role field needed)
+    project.members.push({
+      userId: memberToAdd._id
     });
 
     await project.save();
@@ -291,10 +278,11 @@ const addMemberToCategory = async (req, res) => {
     const updatedProject = await Project.findById(projectId)
       .populate('creator', 'name email')
       .populate('workspace', 'name')
-      .populate('categories.members.userId', 'name email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     res.status(200).json({
-      message: "Member added to category successfully",
+      message: "Member added to project successfully",
       project: updatedProject
     });
 
@@ -304,35 +292,36 @@ const addMemberToCategory = async (req, res) => {
   }
 };
 
-// Remove member from project category
-const removeMemberFromCategory = async (req, res) => {
+// ✅ UPDATED: Remove member from project
+const removeMemberFromProject = async (req, res) => {
   try {
     const { projectId } = req.params;
-    const { categoryName, memberId } = req.body;
+    const { memberId } = req.body;
     const userId = req.userId;
 
-    const project = await Project.findById(projectId);
+    const project = await Project.findById(projectId)
+      .populate('projectHead');
+
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    // Check permission
+    // ✅ Check permission - only project head or admin can remove members
     const user = await User.findById(userId);
-    const canRemoveMember = ['admin', 'super_admin'].includes(user.role) ||
-                           project.creator.toString() === userId;
+    const isProjectHead = project.projectHead._id.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(user.role);
 
-    if (!canRemoveMember) {
-      return res.status(403).json({ message: "You don't have permission to remove members" });
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can remove members" });
     }
 
-    // Find the category
-    const categoryIndex = project.categories.findIndex(cat => cat.name === categoryName);
-    if (categoryIndex === -1) {
-      return res.status(404).json({ message: "Category not found" });
+    // Cannot remove project head
+    if (project.projectHead._id.toString() === memberId) {
+      return res.status(400).json({ message: "Cannot remove project head from project" });
     }
 
-    // Remove member from category
-    project.categories[categoryIndex].members = project.categories[categoryIndex].members.filter(
+    // ✅ Remove member from project
+    project.members = project.members.filter(
       member => member.userId.toString() !== memberId
     );
 
@@ -341,10 +330,11 @@ const removeMemberFromCategory = async (req, res) => {
     const updatedProject = await Project.findById(projectId)
       .populate('creator', 'name email')
       .populate('workspace', 'name')
-      .populate('categories.members.userId', 'name email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     res.status(200).json({
-      message: "Member removed from category successfully",
+      message: "Member removed from project successfully",
       project: updatedProject
     });
 
@@ -354,47 +344,48 @@ const removeMemberFromCategory = async (req, res) => {
   }
 };
 
-// Get user's role in project
+// ✅ UPDATED: Get user's role in project with new structure
 const getUserProjectRole = async (req, res) => {
   try {
     const { projectId } = req.params;
     const userId = req.userId;
 
-    const project = await Project.findById(projectId);
+    const project = await Project.findById(projectId)
+      .populate('projectHead');
+
     if (!project) {
       return res.status(404).json({ message: "Project not found" });
     }
 
     const user = await User.findById(userId);
-    
+
     let projectRole = 'viewer'; // default
-    
-    // Check if user is creator
-    if (project.creator.toString() === userId) {
-      projectRole = 'creator';
+
+    // ✅ Check if user is project head
+    if (project.projectHead._id.toString() === userId) {
+      projectRole = 'project-head';
     }
     // Check if user is admin/super_admin
     else if (['admin', 'super_admin'].includes(user.role)) {
       projectRole = 'admin';
     }
-    // Check user's role in project categories
+    // ✅ Check if user is a member (no role field anymore)
     else {
-      for (const category of project.categories) {
-        const memberInCategory = category.members.find(
-          member => member.userId.toString() === userId
-        );
-        if (memberInCategory) {
-          projectRole = memberInCategory.role.toLowerCase();
-          break;
-        }
+      const isMember = project.members.some(
+        member => member.userId.toString() === userId
+      );
+      if (isMember) {
+        projectRole = 'member';
       }
     }
 
-    res.status(200).json({ 
+    res.status(200).json({
       projectRole,
-      canEdit: ['creator', 'admin', 'lead'].includes(projectRole),
-      canDelete: ['creator', 'admin'].includes(projectRole),
-      canViewKanban: ['creator', 'admin', 'lead'].includes(projectRole)
+      canEdit: ['project-head', 'admin'].includes(projectRole),
+      canDelete: ['project-head', 'admin'].includes(projectRole),
+      canViewKanban: ['project-head', 'admin'].includes(projectRole),
+      canApprove: ['project-head', 'admin'].includes(projectRole),
+      canCreateTask: ['project-head', 'admin'].includes(projectRole) // ✅ NEW: Task creation permission
     });
 
   } catch (error) {
@@ -403,64 +394,7 @@ const getUserProjectRole = async (req, res) => {
   }
 };
 
-const changeMemberRoleInProject = async (req, res) => {
-  try {
-    const { projectId, categoryName, memberId } = req.params;
-    const { newRole } = req.body;
-    const userId = req.userId;
-
-    if (!newRole || !['lead', 'member', 'viewer'].includes(newRole.toLowerCase())) {
-      return res.status(400).json({ message: "Invalid role. Must be lead, member, or viewer" });
-    }
-
-    const project = await Project.findById(projectId);
-    if (!project) {
-      return res.status(404).json({ message: "Project not found" });
-    }
-
-    // Check permission - only creator, admin, super_admin, or category leads can change roles
-    const user = await User.findById(userId);
-    const isCreator = project.creator.toString() === userId;
-    const isAdmin = ['admin', 'super_admin'].includes(user.role);
-    const isLead = project.categories.some(cat => 
-      cat.members.some(member => 
-        member.userId.toString() === userId && member.role === 'Lead'
-      )
-    );
-
-    if (!isCreator && !isAdmin && !isLead) {
-      return res.status(403).json({ message: "You don't have permission to change member roles" });
-    }
-
-    // Find the category
-    const categoryIndex = project.categories.findIndex(cat => cat.name === categoryName);
-    if (categoryIndex === -1) {
-      return res.status(404).json({ message: "Category not found" });
-    }
-
-    // Find the member
-    const memberIndex = project.categories[categoryIndex].members.findIndex(
-      member => member.userId.toString() === memberId
-    );
-    if (memberIndex === -1) {
-      return res.status(404).json({ message: "Member not found in this category" });
-    }
-
-    // Update role
-    project.categories[categoryIndex].members[memberIndex].role = newRole;
-    await project.save();
-
-    const memberInfo = await User.findById(memberId, 'name email');
-
-    res.status(200).json({
-      message: `${memberInfo?.name}'s role changed to ${newRole} successfully`
-    });
-
-  } catch (error) {
-    console.error('Change project member role error:', error);
-    res.status(500).json({ message: "Internal Server Error" });
-  }
-};
+// ✅ REMOVED: changeMemberRoleInProject - no longer needed since members don't have roles
 
 const getWorkspaceProjects = async (req, res) => {
   try {
@@ -473,15 +407,16 @@ const getWorkspaceProjects = async (req, res) => {
 
     let projects;
 
-    // ✅ FIXED: Project visibility logic
+    // ✅ UPDATED: Project visibility logic with new structure
     if (['admin', 'super_admin'].includes(user.role)) {
       // Admin & Super Admin: See ALL projects in workspace
-      projects = await Project.find({ 
+      projects = await Project.find({
         workspace: user.currentWorkspace,
-        isActive: true 
+        isActive: true
       })
       .populate('creator', 'name email')
-      .populate('categories.members.userId', 'name email')
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email')
       .sort({ createdAt: -1 });
     } else {
       // Regular users: Only see projects they are part of
@@ -490,11 +425,13 @@ const getWorkspaceProjects = async (req, res) => {
         isActive: true,
         $or: [
           { creator: userId }, // Projects they created
-          { 'categories.members.userId': userId } // Projects they are assigned to
+          { projectHead: userId }, // Projects they are head of
+          { 'members.userId': userId } // Projects they are member of
         ]
       })
       .populate('creator', 'name email')
-      .populate('categories.members.userId', 'name email')
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email')
       .sort({ createdAt: -1 });
     }
 
@@ -533,10 +470,11 @@ const getProjectStatisticsOverview = async (req, res) => {
 
     // Role-based filtering
     if (!['admin', 'super_admin'].includes(user.role)) {
-      // Regular users: Only see projects they are part of
+      // ✅ UPDATED: Regular users see projects they are part of
       baseQuery.$or = [
         { creator: userId }, // Projects they created
-        { 'categories.members.userId': userId } // Projects they are assigned to
+        { projectHead: userId }, // Projects they are head of
+        { 'members.userId': userId } // Projects they are member of
       ];
     }
 
@@ -594,10 +532,11 @@ const getRecentProjects = async (req, res) => {
 
     // Role-based filtering
     if (!['admin', 'super_admin'].includes(user.role)) {
-      // Regular users: Only see projects they are part of
+      // ✅ UPDATED: Regular users see projects they are part of
       baseQuery.$or = [
         { creator: userId }, // Projects they created
-        { 'categories.members.userId': userId } // Projects they are assigned to
+        { projectHead: userId }, // Projects they are head of
+        { 'members.userId': userId } // Projects they are member of
       ];
     }
 
@@ -610,10 +549,11 @@ const getRecentProjects = async (req, res) => {
       baseQuery.projectType = projectType;
     }
 
-    // Get projects with pagination and sorting
+    // ✅ UPDATED: Get projects with pagination and sorting
     const projects = await Project.find(baseQuery)
       .populate('creator', 'name email')
-      .populate('categories.members.userId', 'name email')
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email')
       .sort({ [sortBy]: -1 })
       .limit(parseInt(limit));
 
@@ -778,9 +718,9 @@ export {
   getWorkspaceMembers,
   updateProject,
   deleteProject,
-  addMemberToCategory,
-  removeMemberFromCategory,
-  changeMemberRoleInProject,
+  addMemberToProject,      // ✅ UPDATED: Renamed from addMemberToCategory, no role parameter
+  removeMemberFromProject,  // ✅ UPDATED: Renamed from removeMemberFromCategory
+  // ✅ REMOVED: changeMemberRoleInProject - no longer needed (members don't have roles)
   getUserProjectRole,
   getProjectStatisticsOverview,
   getRecentProjects,

@@ -8,9 +8,9 @@ import {
   getWorkspaceMembers,
   updateProject,
   deleteProject,
-  addMemberToCategory,
-  removeMemberFromCategory,
-  changeMemberRoleInProject,
+  addMemberToProject,        // ✅ UPDATED: No role parameter needed
+  removeMemberFromProject,    // ✅ UPDATED: Renamed from removeMemberFromCategory
+  // ✅ REMOVED: changeMemberRoleInProject - no longer needed
   getUserProjectRole,
   getProjectStatisticsOverview,
   getRecentProjects,
@@ -383,7 +383,7 @@ router.get('/:projectId/role', getUserProjectRole);
  *       404:
  *         description: Project or member not found.
  */
-router.post('/:projectId/members', addMemberToCategory);
+router.post('/:projectId/members', addMemberToProject); // ✅ UPDATED
 
 /**
  * @swagger
@@ -426,56 +426,9 @@ router.post('/:projectId/members', addMemberToCategory);
  *       404:
  *         description: Project or member not found.
  */
-router.delete('/:projectId/members', removeMemberFromCategory);
+router.delete('/:projectId/members', removeMemberFromProject); // ✅ UPDATED
 
-/**
- * @swagger
- * /projects/{projectId}/categories/{categoryName}/members/{memberId}/role:
- *   patch:
- *     summary: Change a member's role in a project category
- *     tags: [Projects]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: projectId
- *         required: true
- *         schema:
- *           type: string
- *       - in: path
- *         name: categoryName
- *         required: true
- *         schema:
- *           type: string
- *       - in: path
- *         name: memberId
- *         required: true
- *         schema:
- *           type: string
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             required:
- *               - newRole
- *             properties:
- *               newRole:
- *                 type: string
- *     responses:
- *       200:
- *         description: Member role changed successfully.
- *       400:
- *         description: Bad request.
- *       401:
- *         description: Unauthorized.
- *       403:
- *         description: Forbidden.
- *       404:
- *         description: Project, category, or member not found.
- */
-router.patch('/:projectId/categories/:categoryName/members/:memberId/role', changeMemberRoleInProject);
+// ✅ REMOVED: changeMemberRoleInProject route - members no longer have changeable roles
 
 /**
  * @swagger

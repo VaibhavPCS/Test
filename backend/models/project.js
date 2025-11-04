@@ -34,31 +34,20 @@ const projectSchema = new Schema(
       ref: 'User',
       required: true,
     },
-    categories: [{
-      name: {
-        type: String,
-        required: true,
-        trim: true,
+    projectHead: {
+      type: Schema.Types.ObjectId,
+      ref: 'User',
+      required: true,
+    },
+    members: [{
+      userId: {
+        type: Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
       },
-      members: [{
-        userId: {
-          type: Schema.Types.ObjectId,
-          ref: 'User',
-          required: true
-        },
-        role: {
-          type: String,
-          required: true,
-          trim: true,
-        }
-      }],
-      status: {
-        type: String,
-        enum: ['Not Started', 'In Progress', 'Completed'],
-        default: 'Not Started'
-      },
-      completedAt: {
+      addedAt: {
         type: Date,
+        default: Date.now
       }
     }],
     progress: {

@@ -24,7 +24,7 @@ const taskSchema = new Schema(
     assignee: {
       type: Schema.Types.ObjectId,
       ref: 'User',
-      required: true
+      required: false // ✅ UPDATED: Made optional - tasks can be created without assignment
     },
     creator: {
       type: Schema.Types.ObjectId,
@@ -36,10 +36,7 @@ const taskSchema = new Schema(
       ref: 'Project',
       required: true
     },
-    category: {
-      type: String,
-      required: true
-    },
+    // ✅ REMOVED: category field no longer needed with new project structure
     // ✅ NEW: Required start date
     startDate: {
       type: Date,
@@ -57,6 +54,27 @@ const taskSchema = new Schema(
     },
     completedAt: {
       type: Date
+    },
+    // ✅ NEW: Approval workflow fields
+    approvalStatus: {
+      type: String,
+      enum: ['not-required', 'pending-approval', 'approved', 'rejected'],
+      default: 'not-required'
+    },
+    completedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    approvedBy: {
+      type: Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    approvedAt: {
+      type: Date
+    },
+    rejectionReason: {
+      type: String,
+      trim: true
     },
     handoverNotes: {
       type: String,

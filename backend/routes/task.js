@@ -7,11 +7,13 @@ import {
   getProjectTasks,
   getUserProjectTasks,
   updateTask,
-  updateTaskStatus,      
+  updateTaskStatus,
   updateHandoverNotes,
-  getTaskById,           
+  getTaskById,
   getAssignableMembers,
-  deleteTask  // ✅ NEW: Import delete function
+  deleteTask,    // ✅ Import delete function
+  approveTask,   // ✅ NEW: Import approve function
+  rejectTask     // ✅ NEW: Import reject function
 } from '../controllers/task-controller.js';
 
 const router = express.Router();
@@ -146,6 +148,72 @@ router.post(
  */
 router.patch('/:taskId/status', updateTaskStatus);
 router.post('/:taskId/status', updateTaskStatus);
+
+/**
+ * @swagger
+ * /tasks/{taskId}/approve:
+ *   post:
+ *     summary: Approve a task (project head or admin only)
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Task approved successfully.
+ *       400:
+ *         description: Task is not pending approval.
+ *       401:
+ *         description: Unauthorized.
+ *       403:
+ *         description: Only project head or admin can approve.
+ *       404:
+ *         description: Task not found.
+ */
+router.post('/:taskId/approve', approveTask);
+
+/**
+ * @swagger
+ * /tasks/{taskId}/reject:
+ *   post:
+ *     summary: Reject a task (project head or admin only)
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *                 example: Needs more work on the implementation
+ *     responses:
+ *       200:
+ *         description: Task rejected successfully.
+ *       400:
+ *         description: Task is not pending approval.
+ *       401:
+ *         description: Unauthorized.
+ *       403:
+ *         description: Only project head or admin can reject.
+ *       404:
+ *         description: Task not found.
+ */
+router.post('/:taskId/reject', rejectTask);
 
 /**
  * @swagger
