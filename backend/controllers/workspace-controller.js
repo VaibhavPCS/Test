@@ -1,5 +1,6 @@
 import Workspace from '../models/workspace.js';
 import User from '../models/user.js';
+import WorkspaceMemberArchive from '../models/workspace-member-archive.js';
 import Task from '../models/task.js';
 import { createNotification } from './notification-controller.js';
 import Invite from '../models/invite.js';
@@ -333,6 +334,20 @@ const removeMember = async (req, res) => {
       return res.status(400).json({ message: "Cannot remove the owner. Transfer ownership first." });
     }
 
+    // Archive membership for 7 days before removing
+    try {
+      await WorkspaceMemberArchive.create({
+        workspaceId,
+        userId: memberUserId,
+        role: memberToRemove.role,
+        removedAt: new Date(),
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+    } catch (archiveErr) {
+      console.error('Archive membership failed:', archiveErr);
+      // Proceed with removal even if archival fails
+    }
+
     // Remove from workspace members using atomic update
     await Workspace.findByIdAndUpdate(
       workspaceId,
@@ -360,7 +375,7 @@ const removeMember = async (req, res) => {
     const memberUser = await User.findById(memberUserId, 'name email');
 
     res.status(200).json({
-      message: `${memberUser?.name || 'Member'} removed from workspace successfully`
+      message: `${memberUser?.name || 'Member'} removed. Data retained for 7 days in case of re-add.`
     });
 
   } catch (error) {
@@ -598,7 +613,7 @@ const inviteMember = async (req, res) => {
       return res.status(400).json({ message: "Invalid email format" });
     }
 
-    if (!['member', 'admin', 'lead', 'viewer', 'head'].includes(role)) {
+    if (!['member', 'admin', 'lead'].includes(role)) {
       return res.status(400).json({ message: "Invalid role" });
     }
 
@@ -624,17 +639,41 @@ const inviteMember = async (req, res) => {
       return res.status(403).json({ message: "Only owners and admins can invite members" });
     }
 
+    // Prevent inviting yourself
+    if (inviter.email?.toLowerCase() === email.toLowerCase()) {
+      return res.status(400).json({ message: "You cannot invite yourself" });
+    }
+
     // Check if user exists
     let inviteUser = await User.findOne({ email });
     
     if (inviteUser) {
+      // Prevent inviting workspace owner
+      const isOwner = (workspace.createdBy?.toString() === inviteUser._id.toString()) ||
+        (workspace.members?.some(m => m.userId.toString() === inviteUser._id.toString() && m.role === 'owner'));
+      if (isOwner) {
+        return res.status(400).json({ message: "Workspace owner cannot be invited" });
+      }
       // Check if already a member
       const isAlreadyMember = inviteUser.workspaces?.some(w => w.workspaceId.toString() === workspaceId);
       if (isAlreadyMember) {
         return res.status(400).json({ message: "User is already a member of this workspace" });
       }
 
-      // ✅ FIXED: Add user directly to workspace using atomic update
+      // If user was previously removed within 7-day window, restore and delete archive
+      let restoredFromArchive = false;
+      try {
+        const archive = await WorkspaceMemberArchive.findOne({ workspaceId, userId: inviteUser._id });
+        if (archive && archive.expiresAt && archive.expiresAt > new Date()) {
+          restoredFromArchive = true;
+          // Clean up archive so TTL doesn't re-trigger
+          await WorkspaceMemberArchive.deleteOne({ _id: archive._id });
+        }
+      } catch (archiveCheckErr) {
+        console.error('Archive check failed:', archiveCheckErr);
+      }
+
+      // ✅ Add user directly to workspace using atomic update
       // Add to user's workspaces first
       inviteUser.workspaces = inviteUser.workspaces || [];
       inviteUser.workspaces.push({
@@ -650,7 +689,7 @@ const inviteMember = async (req, res) => {
 
       await inviteUser.save();
 
-      // ✅ FIXED: Add to workspace members using atomic update instead of save()
+      // ✅ Add to workspace members using atomic update
       await Workspace.findByIdAndUpdate(
         workspaceId,
         {
@@ -691,7 +730,9 @@ const inviteMember = async (req, res) => {
       });
 
       return res.status(200).json({
-        message: "User added to workspace successfully",
+        message: restoredFromArchive
+          ? "User restored and added back to workspace successfully"
+          : "User added to workspace successfully",
         user: {
           _id: inviteUser._id,
           name: inviteUser.name,
@@ -701,62 +742,8 @@ const inviteMember = async (req, res) => {
       });
     }
 
-    // ✅ IF USER DOESN'T EXIST, CREATE INVITE TOKEN
-    const inviteToken = crypto.randomBytes(32).toString('hex');
-    
-    // Check for existing pending invite
-    const existingInvite = await Invite.findOne({ 
-      email, 
-      workspace: workspaceId, 
-      status: 'pending' 
-    });
-    
-    if (existingInvite) {
-      return res.status(400).json({ message: "Invite already sent to this email" });
-    }
-
-    // ✅ Create invite for non-existing users
-    const invite = await Invite.create({
-      email,
-      workspace: workspaceId,
-      invitedBy: userId,
-      role,
-      token: inviteToken,
-      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) // 7 days
-    });
-
-    // ✅ TODO: Send email here (uncomment when email service is ready)
-    // try {
-    //   await sendInviteEmail({
-    //     email: email,
-    //     inviterName: inviter.name,
-    //     workspaceName: workspace.name,
-    //     role: role,
-    //     inviteToken: inviteToken
-    //   });
-    // } catch (emailError) {
-    //   console.error('Email sending failed:', emailError);
-    //   // Don't fail the request if email fails
-    // }
-
-    console.log('Invite created for non-existing user:', {
-      email,
-      workspaceId,
-      role,
-      token: inviteToken
-    });
-
-    res.status(200).json({ 
-      message: "Invitation sent successfully. User will receive an email to join the platform and workspace.",
-      invite: {
-        _id: invite._id,
-        email: invite.email,
-        role: invite.role,
-        status: invite.status,
-        expiresAt: invite.expiresAt,
-        createdAt: invite.createdAt
-      }
-    });
+    // If user doesn't exist in the system, return a clear error
+    return res.status(404).json({ message: "User not found in the system" });
 
   } catch (error) {
     console.error('Invite member error:', error);

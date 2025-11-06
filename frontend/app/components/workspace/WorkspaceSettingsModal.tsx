@@ -60,6 +60,9 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
 
   const [deleting, setDeleting] = useState(false);
   
+  // Determine current user's role within this workspace for permission gating
+  const currentUserRole = members.find((m) => m._id === user?._id)?.role || 'member';
+  
 
   useEffect(() => {
     if (open && workspaceId) {
@@ -130,7 +133,15 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
       setInviteEmail('');
       await loadWorkspaceDetails();
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to send invite');
+      // Prefer backend-provided error message for clarity (e.g., 404/403/400)
+      const message =
+        error?.response?.data?.message ||
+        (error?.response?.status === 404
+          ? 'Workspace or user not found'
+          : undefined) ||
+        error?.message ||
+        'Failed to send invite';
+      toast.error(message);
     } finally {
       setInviting(false);
     }
@@ -172,11 +183,11 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
 
   const handleRemoveMember = async (member: MemberItem) => {
     if (!workspaceId) return;
+    // Block owner removal at UI level; backend also enforces this
     if (member.role === 'owner') {
-      toast.error('Cannot remove the owner');
+      toast.error('Cannot remove the owner. Transfer ownership first.');
       return;
     }
-    const currentUserRole = members.find((m) => m._id === user?._id)?.role || 'member';
     if (currentUserRole !== 'owner' && currentUserRole !== 'admin') {
       toast.error('You do not have permission to remove members');
       return;
@@ -299,7 +310,7 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
                     {/* Viewer role is deprecated in UI; commented out intentionally */}
                     {/** <SelectItem value="viewer">Viewer</SelectItem> **/}
                     {/* Head renamed to Lead in UI; keep backend value for compatibility */}
-                    <SelectItem value="head">Lead</SelectItem>
+                    {/* <SelectItem value="head">Lead</SelectItem> */}
                     <SelectItem value="admin">Admin</SelectItem>
                   </SelectContent>
                 </Select>
@@ -334,24 +345,35 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
                           <div className="font-medium text-[14px] text-[#040110] truncate">{member.name}</div>
                           <div className="text-[12px] text-[#717182] truncate">{member.email}</div>
                         </div>
-                        <Select
-                          value={member.role}
-                          onValueChange={(val) => handleRoleChange(member, (val as 'member' | 'admin' | 'lead' | 'viewer' | 'head'))}
-                          disabled={member.role === 'owner'}
-                        >
-                          <SelectTrigger className="h-[34px] border-[#d5d7da] rounded-[8px] px-[10px] py-[6px] font-['Inter'] text-[13px]">
-                            <SelectValue placeholder="Role" />
-                          </SelectTrigger>
-                          <SelectContent className="font-['Inter'] text-[13px]">
-                            <SelectItem value="member">Employee</SelectItem>
-                            <SelectItem value="lead">Lead</SelectItem>
-                            {/* Viewer role is deprecated in UI; commented out intentionally */}
-                            {/** <SelectItem value="viewer">Viewer</SelectItem> **/}
-                            {/* Head renamed to Lead in UI; keep backend value for compatibility */}
-                            {/* <SelectItem value="head">Lead</SelectItem> */}
-                            <SelectItem value="admin">Admin</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <div className="flex items-center gap-2">
+                          <Select
+                            value={member.role}
+                            onValueChange={(val) => handleRoleChange(member, (val as 'member' | 'admin' | 'lead' | 'viewer' | 'head'))}
+                            disabled={member.role === 'owner'}
+                          >
+                            <SelectTrigger className="h-[34px] border-[#d5d7da] rounded-[8px] px-[10px] py-[6px] font-['Inter'] text-[13px]">
+                              <SelectValue placeholder="Role" />
+                            </SelectTrigger>
+                            <SelectContent className="font-['Inter'] text-[13px]">
+                              <SelectItem value="member">Employee</SelectItem>
+                              <SelectItem value="lead">Lead</SelectItem>
+                              {/* Viewer role is deprecated in UI; commented out intentionally */}
+                              {/** <SelectItem value="viewer">Viewer</SelectItem> **/}
+                              {/* Head renamed to Lead in UI; keep backend value for compatibility */}
+                              {/* <SelectItem value="head">Lead</SelectItem> */}
+                              <SelectItem value="admin">Admin</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <Button
+                            variant="ghost"
+                            className="px-2 h-[34px] text-red-600 hover:text-red-700"
+                            aria-label={`Remove ${member.name}`}
+                            disabled={member.role === 'owner' || !(['owner', 'admin'].includes(currentUserRole))}
+                            onClick={() => handleRemoveMember(member)}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
                       </div>
                       <div className="w-full mt-2 text-[12px] text-[#717182]">
                         {roleDescriptions[member.role] || ''}
