@@ -354,20 +354,20 @@ const getUserProjectTasks = async (req, res) => {
 };
 
 // ✅ UPDATED: Update task with date validation
-const updateTask = async (req, res) => {
+  const updateTask = async (req, res) => {
   try {
     const { taskId } = req.params;
     const updates = req.body;
     const userId = req.userId;
 
-    const task = await Task.findById(taskId);
+    const task = await Task.findById(taskId).populate('project');
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
     }
 
     // Only assignee or creator can update task (or admin/super_admin)
     const currentUser = await User.findById(userId);
-    const canUpdate = task.assignee.toString() === userId || 
+    const canUpdate = (task.assignee && task.assignee.toString() === userId) || 
                      task.creator.toString() === userId ||
                      ['admin', 'super_admin'].includes(currentUser.role);
 
@@ -397,6 +397,38 @@ const updateTask = async (req, res) => {
     // Enforce start <= due
     if (nextStart && nextDue && nextStart > nextDue) {
       return res.status(400).json({ message: "Start date cannot be after due date" });
+    }
+
+    // Map assigneeId -> assignee (with membership validation)
+    if (Object.prototype.hasOwnProperty.call(updates, 'assigneeId')) {
+      const newAssigneeId = updates.assigneeId || null;
+
+      if (newAssigneeId) {
+        try {
+          const projectId = task.project && task.project._id ? task.project._id : task.project;
+          const project = await Project.findById(projectId)
+            .populate('projectHead', 'name email')
+            .populate('members.userId', 'name email');
+
+          if (!project) {
+            return res.status(404).json({ message: "Project not found" });
+          }
+
+          const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+          const assigneeInProject = project.members.some(m => m.userId._id.toString() === newAssigneeId) ||
+                                    project.projectHead._id.toString() === newAssigneeId;
+
+          if (!assigneeInProject && !isAdmin) {
+            return res.status(400).json({ message: "Assignee must be a member of this project" });
+          }
+        } catch (e) {
+          console.error('Assignee validation error:', e);
+          return res.status(500).json({ message: "Internal Server Error" });
+        }
+      }
+
+      updates.assignee = newAssigneeId;
+      delete updates.assigneeId;
     }
 
     // Recompute durationDays if either date changed
