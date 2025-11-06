@@ -1,4 +1,7 @@
 import React, { useEffect, useState } from 'react';
+// UI note: The 'viewer' role is supported by the backend for existing users,
+// but intentionally hidden in the UI. New invites cannot select 'viewer'.
+// Existing viewer users still display with read-only capabilities.
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
@@ -25,10 +28,16 @@ interface MemberItem {
   role: string;
 }
 
+// Role descriptions help explain capabilities beneath the role selector.
+// Include 'viewer' here so existing viewer roles render meaningful text,
+// even though the viewer option is not selectable in the UI.
 const roleDescriptions: Record<string, string> = {
   owner: 'Full control over workspace settings and membership.',
-  admin: 'Manage members and roles; create and delete projects.',
-  member: 'Collaborate on projects and tasks within the workspace.',
+  admin: 'Manage employees and roles; create and delete projects.',
+  // head renamed to lead in UI; keep backend role compatibility if present
+  head: 'Leads projects in the workspace; shown as Lead in UI.',
+  lead: 'Coordinate employees and workflows within projects.',
+  member: 'Collaborate on projects and tasks within the workspace (Employee).',
   viewer: 'Read-only access to projects and tasks.',
 };
 
@@ -44,7 +53,9 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
   const [savingGeneral, setSavingGeneral] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState('');
-  const [inviteRole, setInviteRole] = useState<'member' | 'admin'>('member');
+  // Note: 'viewer' remains in the type/API payload for backward compatibility,
+  // but the viewer option is intentionally not presented to users.
+  const [inviteRole, setInviteRole] = useState<'member' | 'admin' | 'lead' | 'viewer' | 'head'>('member');
   const [inviting, setInviting] = useState(false);
 
   const [deleting, setDeleting] = useState(false);
@@ -125,7 +136,7 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
     }
   };
 
-  const handleRoleChange = async (member: MemberItem, newRole: 'member' | 'admin') => {
+  const handleRoleChange = async (member: MemberItem, newRole: 'member' | 'admin' | 'lead' | 'viewer' | 'head') => {
     if (!workspaceId) return;
     if (member.role === 'owner') {
       toast.error('Cannot change role of owner');
@@ -174,14 +185,14 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
     if (!confirmRemove) return;
     try {
       const res = await deleteData(`/workspace/${workspaceId}/members/${member._id}`);
-      toast.success(res?.message || 'Member removed');
+      toast.success(res?.message || 'Employee removed');
       setMembers((prev) => prev.filter((m) => m._id !== member._id));
       // setAuditLogs((logs) => [
       //   { type: 'remove', message: `Removed ${member.email} from workspace`, status: 'success', timestamp: new Date().toISOString() },
       //   ...logs,
       // ]);
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to remove member');
+      toast.error(error?.message || 'Failed to remove employee');
       // setAuditLogs((logs) => [
       //   { type: 'remove', message: `Remove failed for ${member.email}: ${error?.message || 'error'}`, status: 'error', timestamp: new Date().toISOString() },
       //   ...logs,
@@ -214,7 +225,7 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
               General
             </TabsTrigger>
             <TabsTrigger value="add" className="px-[12px] py-[8px] text-[13px] font-['Inter'] data-[state=active]:border-b-[1px] data-[state=active]:border-[#F2761B]">
-              <UserPlus className="w-3.5 h-3.5 mr-1" /> Add Member
+              <UserPlus className="w-3.5 h-3.5 mr-1" /> Add Employee
             </TabsTrigger>
             <TabsTrigger value="roles" className="px-[12px] py-[8px] text-[13px] font-['Inter'] data-[state=active]:border-b-[1px] data-[state=active]:border-[#F2761B]">
               <Users className="w-3.5 h-3.5 mr-1" /> Change Roles
@@ -258,12 +269,12 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
             </div>
           </TabsContent>
 
-          {/* Add Member Tab */}
+          {/* Add Employee Tab */}
           <TabsContent value="add">
             <div className="space-y-3">
               <div className="space-y-2">
                 <Label className="text-[14px] font-medium font-['Inter'] text-[#040110]">
-                  Member email <span className="text-red-500">*</span>
+                  Employee email <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   type="email"
@@ -278,16 +289,21 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
                 <Label className="text-[14px] font-medium font-['Inter'] text-[#040110]">
                   Role <span className="text-red-500">*</span>
                 </Label>
-                <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as 'member' | 'admin')}>
+                <Select value={inviteRole} onValueChange={(v) => setInviteRole(v as 'member' | 'admin' | 'lead' | 'viewer' | 'head')}>
                   <SelectTrigger className="h-[40px] border-[#d5d7da] rounded-[8px] px-[14px] py-[8px] font-['Inter'] text-[14px]">
                     <SelectValue placeholder="Select role" />
                   </SelectTrigger>
                   <SelectContent className="font-['Inter'] text-[14px]">
-                    <SelectItem value="member">Member</SelectItem>
+                    <SelectItem value="member">Employee</SelectItem>
+                    <SelectItem value="lead">Lead</SelectItem>
+                    {/* Viewer role is deprecated in UI; commented out intentionally */}
+                    {/** <SelectItem value="viewer">Viewer</SelectItem> **/}
+                    {/* Head renamed to Lead in UI; keep backend value for compatibility */}
+                    <SelectItem value="head">Lead</SelectItem>
                     <SelectItem value="admin">Admin</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-[12px] text-[#717182]">Member can collaborate; Admin can manage members and projects.</p>
+                <p className="text-[12px] text-[#717182]">Employee can collaborate; Admin can manage employees and projects.</p>
               </div>
               <div className="flex justify-end">
                 <Button
@@ -296,7 +312,7 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
                   className="bg-[#f2761b] hover:bg-[#d96816] text-white font-['Inter']"
                   aria-disabled={inviting}
                 >
-                  {inviting ? 'Adding…' : 'Add Member'}
+                  {inviting ? 'Adding…' : 'Add Employee'}
                 </Button>
               </div>
             </div>
@@ -306,9 +322,9 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
           <TabsContent value="roles">
             <div className="space-y-3">
               {loadingMembers ? (
-                <div className="flex items-center text-sm text-[#717182]"><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading members…</div>
+                <div className="flex items-center text-sm text-[#717182]"><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Loading employees…</div>
               ) : members.length === 0 ? (
-                <div className="text-sm text-[#717182]">No members found for this workspace.</div>
+                <div className="text-sm text-[#717182]">No employees found for this workspace.</div>
               ) : (
                 <div className="divide-y divide-gray-200 border border-gray-200 rounded-lg">
                   {members.map((member) => (
@@ -320,14 +336,19 @@ export function WorkspaceSettingsModal({ open, onClose, workspace, onWorkspaceUp
                         </div>
                         <Select
                           value={member.role}
-                          onValueChange={(val) => handleRoleChange(member, (val as 'member' | 'admin'))}
+                          onValueChange={(val) => handleRoleChange(member, (val as 'member' | 'admin' | 'lead' | 'viewer' | 'head'))}
                           disabled={member.role === 'owner'}
                         >
                           <SelectTrigger className="h-[34px] border-[#d5d7da] rounded-[8px] px-[10px] py-[6px] font-['Inter'] text-[13px]">
                             <SelectValue placeholder="Role" />
                           </SelectTrigger>
                           <SelectContent className="font-['Inter'] text-[13px]">
-                            <SelectItem value="member">Member</SelectItem>
+                            <SelectItem value="member">Employee</SelectItem>
+                            <SelectItem value="lead">Lead</SelectItem>
+                            {/* Viewer role is deprecated in UI; commented out intentionally */}
+                            {/** <SelectItem value="viewer">Viewer</SelectItem> **/}
+                            {/* Head renamed to Lead in UI; keep backend value for compatibility */}
+                            {/* <SelectItem value="head">Lead</SelectItem> */}
                             <SelectItem value="admin">Admin</SelectItem>
                           </SelectContent>
                         </Select>

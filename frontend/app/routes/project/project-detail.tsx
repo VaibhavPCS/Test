@@ -6,7 +6,7 @@ import {
   ArrowLeft,
   Plus,
   Settings,
-  Calendar,
+  Calendar as CalendarIcon,
   KanbanSquare,
   CheckSquare,
   Clock,
@@ -80,6 +80,9 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Calendar } from "@/components/ui/calendar";
+import { format } from "date-fns";
 import { StatusBadge } from "@/components/ui/status-badge";
 import Breadcrumb from "@/components/layout/Breadcrumb";
 import { TeamAvatars } from "@/components/project/TeamAvatars";
@@ -114,7 +117,7 @@ interface Task {
   description: string;
   status: "to-do" | "in-progress" | "done";
   priority: "low" | "medium" | "high" | "urgent";
-  assignee: { _id: string; name: string; email: string };
+  assignee?: { _id: string; name: string; email: string } | null;
   creator: { _id: string; name: string; email: string };
   category: string;
   startDate: string;
@@ -134,12 +137,9 @@ interface Project {
   endDate: string;
   progress: number;
   projectHead?: { _id: string; name: string; email: string };
-  categories: Array<{
-    name: string;
-    members: Array<{
-      userId: { _id: string; name: string; email: string };
-      role: string;
-    }>;
+  // ✅ UPDATED: New project structure uses a flat members array
+  members?: Array<{
+    userId: { _id: string; name: string; email: string };
   }>;
   creator: { _id: string; name: string; email: string };
   attachments?: Array<{
@@ -496,12 +496,12 @@ const CalendarViewComponent: React.FC<CalendarViewProps> = ({
                   placeholder="Search tasks..."
                   className="pl-7 h-8 text-sm"
                   value={filters.search}
-                  onChange={(e) => updateFilter("search", e.target.value)}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateFilter("search", e.target.value)}
                 />
               </div>
               <Select
                 value={filters.status}
-                onValueChange={(value) => updateFilter("status", value)}
+                onValueChange={(value: string) => updateFilter("status", value)}
               >
                 <SelectTrigger className="w-24 h-8 text-xs">
                   <SelectValue />
@@ -515,7 +515,7 @@ const CalendarViewComponent: React.FC<CalendarViewProps> = ({
               </Select>
               <Select
                 value={filters.priority}
-                onValueChange={(value) => updateFilter("priority", value)}
+                onValueChange={(value: string) => updateFilter("priority", value)}
               >
                 <SelectTrigger className="w-20 h-8 text-xs">
                   <SelectValue />
@@ -702,7 +702,7 @@ const CalendarViewComponent: React.FC<CalendarViewProps> = ({
                   {getTasksForDate(currentDate).length === 0 ? (
                     <Card className="border-dashed border-2 border-gray-200">
                       <CardContent className="text-center py-8">
-                        <Calendar className="w-8 h-8 mx-auto mb-2 text-gray-400" />
+            <CalendarIcon className="w-8 h-8 mx-auto mb-2 text-gray-400" />
                         <p className="text-gray-500">No tasks scheduled for this day</p>
                       </CardContent>
                     </Card>
@@ -772,8 +772,11 @@ const TaskCard = React.memo<{
   currentUser?: CurrentUser | null;
   userRole?: string;
   onTaskUpdate?: () => void;
-}>(({ task, onClick, compact = false, currentUser, userRole, onTaskUpdate }) => {
+  assignableMembers?: AssignableMember[];
+}>(({ task, onClick, compact = false, currentUser, userRole, onTaskUpdate, assignableMembers = [] }) => {
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showAssignModal, setShowAssignModal] = useState(false);
+  const [selectedAssigneeId, setSelectedAssigneeId] = useState<string>(task.assignee?._id || "");
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
 
@@ -820,6 +823,26 @@ const TaskCard = React.memo<{
     }
   };
 
+  const handleAssignTask = async () => {
+    try {
+      await postData(`/task/${task._id}`, { assigneeId: selectedAssigneeId || null });
+      toast.success("Assignee updated");
+      setShowAssignModal(false);
+      onTaskUpdate?.();
+    } catch (error: any) {
+      toast.error(error.response?.data?.message || "Failed to assign task");
+    }
+  };
+
+  const handleCardClick = () => {
+    if (!task.assignee?._id) {
+      toast.warning("Assign an employee to open this task");
+      if (canManageTask) setShowAssignModal(true);
+      return;
+    }
+    onClick?.();
+  };
+
   return (
     <>
       <Card
@@ -832,17 +855,35 @@ const TaskCard = React.memo<{
               : "border-l-gray-400",
           isOverdue && "border-l-red-500"
         )}
+        onClick={handleCardClick}
       >
         <CardHeader className="p-3 pb-2">
           <div className="flex items-start justify-between gap-2">
             <CardTitle
               className="text-sm font-medium line-clamp-2 text-gray-900 flex-1 cursor-pointer"
-              onClick={onClick}
+              onClick={handleCardClick}
             >
               {task.title}
             </CardTitle>
 
             <div className="flex items-center gap-1 flex-shrink-0">
+              {/* Always-visible Assign button */}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (canManageTask) {
+                    setSelectedAssigneeId(task.assignee?._id || "");
+                    setShowAssignModal(true);
+                  } else {
+                    toast.info("You don’t have permission to assign this task");
+                  }
+                }}
+              >
+                Assign
+              </Button>
               <Badge
                 variant="outline"
                 className={cn("text-xs h-5 px-1.5", getPriorityColor(task.priority))}
@@ -864,7 +905,7 @@ const TaskCard = React.memo<{
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem onClick={onClick}>
+                    <DropdownMenuItem onClick={handleCardClick}>
                       <Eye className="w-3 h-3 mr-2" />
                       View Details
                     </DropdownMenuItem>
@@ -912,7 +953,7 @@ const TaskCard = React.memo<{
           </div>
         </CardHeader>
 
-        <CardContent className="p-3 pt-0" onClick={onClick}>
+        <CardContent className="p-3 pt-0" onClick={handleCardClick}>
           <div className="flex items-center justify-between text-xs text-gray-600">
             <div className="flex items-center gap-1.5 min-w-0">
               <Avatar className="w-4 h-4">
@@ -950,7 +991,45 @@ const TaskCard = React.memo<{
             task={task}
             onClose={() => setShowEditModal(false)}
             onUpdate={onTaskUpdate}
+            assignableMembers={assignableMembers}
           />
+        </DialogContent>
+      </Dialog>
+
+      {/* Assign Modal */}
+      <Dialog open={showAssignModal} onOpenChange={setShowAssignModal}>
+        <DialogContent className="sm:max-w-md" onOpenAutoFocus={(e) => e.preventDefault()}>
+          <DialogHeader>
+            <DialogTitle>Assign Task</DialogTitle>
+            <DialogDescription>Select an employee to assign this task.</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-2">
+          <Label className="text-sm">Assignee</Label>
+          <Select
+            value={selectedAssigneeId}
+            onValueChange={(value: string) => setSelectedAssigneeId(value === "__UNASSIGNED__" ? "" : value)}
+          >
+              <SelectTrigger className="h-8">
+                <SelectValue placeholder="Select assignee" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__UNASSIGNED__">Unassigned</SelectItem>
+                {assignableMembers.map((m) => (
+                  <SelectItem key={m._id} value={m._id}>
+                    {m.name || m.email}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2 pt-3">
+            <Button variant="outline" onClick={() => setShowAssignModal(false)} className="flex-1">
+              Cancel
+            </Button>
+            <Button onClick={handleAssignTask} className="flex-1">
+              Save
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -989,13 +1068,15 @@ const QuickEditTaskForm: React.FC<{
   task: Task;
   onClose: () => void;
   onUpdate?: () => void;
-}> = ({ task, onClose, onUpdate }) => {
+  assignableMembers?: AssignableMember[];
+}> = ({ task, onClose, onUpdate, assignableMembers = [] }) => {
   const [formData, setFormData] = useState({
     title: task.title,
     description: task.description,
     priority: task.priority,
     startDate: new Date(task.startDate).toISOString().split("T")[0],
     dueDate: new Date(task.dueDate).toISOString().split("T")[0],
+    assigneeId: task.assignee?._id || "",
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -1024,13 +1105,38 @@ const QuickEditTaskForm: React.FC<{
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       <div className="space-y-2">
-        <Label className="text-sm">Title</Label>
-        <Input
-          value={formData.title}
-          onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-          className="h-8"
-          required
-        />
+          <Label className="text-sm">Title</Label>
+          <Input
+            value={formData.title}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, title: e.target.value })}
+            className="h-8"
+            required
+          />
+      </div>
+
+      <div className="space-y-2">
+        <Label className="text-sm">Assignee (optional)</Label>
+        <Select
+          value={formData.assigneeId}
+          onValueChange={(value: string) => setFormData({ ...formData, assigneeId: value === "__UNASSIGNED__" ? "" : value })}
+        >
+          <SelectTrigger className="h-8">
+            <SelectValue placeholder="Select" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="__UNASSIGNED__">Unassigned</SelectItem>
+            {assignableMembers.map((member) => (
+              <SelectItem key={member._id} value={member._id}>
+                <div className="flex items-center gap-2">
+                  <Avatar className="w-4 h-4">
+                    <AvatarFallback className="text-xs">{(member.name?.charAt(0) || member.email?.charAt(0) || "?")}</AvatarFallback>
+                  </Avatar>
+                  <span className="text-sm">{member.name || member.email || "Unknown"}</span>
+                </div>
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
@@ -1038,7 +1144,7 @@ const QuickEditTaskForm: React.FC<{
           <Label className="text-sm">Priority</Label>
           <Select
             value={formData.priority}
-            onValueChange={(value) => setFormData({ ...formData, priority: value as any })}
+            onValueChange={(value: string) => setFormData({ ...formData, priority: value as 'low' | 'medium' | 'high' | 'urgent' })}
           >
             <SelectTrigger className="h-8">
               <SelectValue />
@@ -1074,7 +1180,7 @@ const QuickEditTaskForm: React.FC<{
           <Input
             type="date"
             value={formData.startDate}
-            onChange={(e) => setFormData({ ...formData, startDate: e.target.value })}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, startDate: e.target.value })}
             className="h-8"
           />
         </div>
@@ -1084,7 +1190,7 @@ const QuickEditTaskForm: React.FC<{
           <Input
             type="date"
             value={formData.dueDate}
-            onChange={(e) => setFormData({ ...formData, dueDate: e.target.value })}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFormData({ ...formData, dueDate: e.target.value })}
             className="h-8"
             min={formData.startDate}
           />
@@ -1095,7 +1201,7 @@ const QuickEditTaskForm: React.FC<{
         <Label className="text-sm">Description</Label>
         <Textarea
           value={formData.description}
-          onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+          onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setFormData({ ...formData, description: e.target.value })}
           rows={3}
           className="resize-none text-sm"
         />
@@ -1124,7 +1230,8 @@ const SortableTaskCard: React.FC<{
   currentUser?: CurrentUser | null;
   userRole?: string;
   onTaskUpdate?: () => void;
-}> = ({ task, currentUser, userRole, onTaskUpdate }) => {
+  assignableMembers?: AssignableMember[];
+}> = ({ task, currentUser, userRole, onTaskUpdate, assignableMembers = [] }) => {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: task._id });
 
   return (
@@ -1141,6 +1248,7 @@ const SortableTaskCard: React.FC<{
         currentUser={currentUser}
         userRole={userRole}
         onTaskUpdate={onTaskUpdate}
+        assignableMembers={assignableMembers}
       />
     </div>
   );
@@ -1222,6 +1330,8 @@ const ProjectDetail = () => {
     startDate: "",
     dueDate: "",
   });
+  const [startDateObj, setStartDateObj] = useState<Date | undefined>(undefined);
+  const [dueDateObj, setDueDateObj] = useState<Date | undefined>(undefined);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -1268,43 +1378,25 @@ const ProjectDetail = () => {
   const kanbanFilteredTasks = useMemo(() => {
     if (!currentUser) return [];
 
+    const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
+    const isProjectMember = !!(
+      project?.members?.some((m) => (m.userId?._id || "").toString() === currentUserIdStr) ||
+      (project?.projectHead?._id || "").toString() === currentUserIdStr
+    );
+
     let tasksToShow = allTasks;
 
     if (["admin", "super-admin"].includes(currentUser.role || userRole)) {
       tasksToShow = allTasks;
-    } else if (
-      (currentUser.role || userRole) === "lead" ||
-      project?.categories?.some((cat) =>
-        cat.members?.some((member) => {
-          const memberIdStr = member.userId?._id?.toString() || "";
-          const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
-          return memberIdStr === currentUserIdStr && member.role === "Lead";
-        })
-      )
-    ) {
-      const userCategory = project?.categories?.find((cat) =>
-        cat.members?.some((member) => {
-          const memberIdStr = member.userId?._id?.toString() || "";
-          const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
-          return memberIdStr === currentUserIdStr;
-        })
-      );
-
-      if (userCategory) {
-        const categoryMemberIds = userCategory.members
-          .map((m) => m.userId?._id?.toString() || "")
-          .filter(Boolean);
-        tasksToShow = allTasks.filter(
-          (task) =>
-            categoryMemberIds.includes(task.assignee?._id?.toString() || "") ||
-            categoryMemberIds.includes(task.creator?._id?.toString() || "")
-        );
-      }
+    } else if ((currentUser.role || userRole) === "lead" && isProjectMember) {
+      tasksToShow = allTasks;
+    } else if ((project?.projectHead?._id || "").toString() === currentUserIdStr) {
+      tasksToShow = allTasks;
     } else {
       tasksToShow = allTasks.filter(
         (task) =>
-          (task.assignee?._id?.toString() || "") === (currentUser?.id || currentUser?._id || "").toString() ||
-          (task.creator?._id?.toString() || "") === (currentUser?.id || currentUser?._id || "").toString()
+          (task.assignee?._id?.toString() || "") === currentUserIdStr ||
+          (task.creator?._id?.toString() || "") === currentUserIdStr
       );
     }
 
@@ -1322,16 +1414,17 @@ const ProjectDetail = () => {
   }, [allTasks, filters, userRole, currentUser, project]);
 
   const taskStats = useMemo(() => {
+    const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
+    const isProjectMember = !!(
+      project?.members?.some((m) => (m.userId?._id || "").toString() === currentUserIdStr) ||
+      (project?.projectHead?._id || "").toString() === currentUserIdStr
+    );
+
     const relevantTasks = ["admin", "super-admin"].includes(userRole)
       ? allTasks
-      : ["lead"].includes(userRole) ||
-          project?.categories?.some((cat) =>
-            cat.members?.some(
-              (member) => member.userId?._id === (currentUser?.id || currentUser?._id) && member.role === "Lead"
-            )
-          )
-        ? kanbanFilteredTasks
-        : userTasks;
+      : ((userRole === "lead" && isProjectMember) || (project?.projectHead?._id || "").toString() === currentUserIdStr)
+      ? kanbanFilteredTasks
+      : userTasks;
 
     return {
       total: relevantTasks.length,
@@ -1349,27 +1442,42 @@ const ProjectDetail = () => {
     if (["admin", "super-admin"].includes(currentUser.role || userRole)) return true;
     if (project?.creator?._id === (currentUser.id || currentUser._id)) return true;
 
-    return project?.categories?.some((cat) =>
-      cat.members?.some((member) => {
-        const memberIdStr = member.userId?._id?.toString();
-        const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
-        return memberIdStr === currentUserIdStr;
-      })
+    const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
+    return !!(
+      project?.members?.some((m) => (m.userId?._id || "").toString() === currentUserIdStr) ||
+      (project?.projectHead?._id || "").toString() === currentUserIdStr
     );
   }, [userRole, project, currentUser]);
 
   const canCreateTask = useMemo(() => {
+    const currentUserIdStr = (currentUser?.id || currentUser?._id || "").toString();
+    const isProjectMember = !!(
+      project?.members?.some((m) => (m.userId?._id || "").toString() === currentUserIdStr) ||
+      (project?.projectHead?._id || "").toString() === currentUserIdStr
+    );
+
     return (
       ["admin", "super-admin"].includes(userRole) ||
-      project?.categories?.some((cat) =>
-        cat.members?.some(
-          (member) =>
-            member.userId?._id === (currentUser?.id || currentUser?._id) && ["Lead", "Member"].includes(member.role)
-        )
-      ) ||
+      isProjectMember ||
       project?.creator._id === currentUser?._id
     );
   }, [userRole, project, currentUser]);
+
+  // Filter assignable members to those who belong to this project
+  const projectMemberIds = useMemo(() => {
+    const ids = new Set<string>();
+    // ✅ UPDATED: Use project.members instead of categories
+    project?.members?.forEach((member) => {
+      const id = member.userId?._id?.toString() || "";
+      if (id) ids.add(id);
+    });
+    if (project?.projectHead?._id) ids.add(project.projectHead._id.toString());
+    return ids;
+  }, [project]);
+
+  const filteredAssignableMembers = useMemo(() => {
+    return assignableMembers.filter((m) => projectMemberIds.has(m._id?.toString() || ""));
+  }, [assignableMembers, projectMemberIds]);
 
   const updateFilter = useCallback((key: keyof FilterType, value: string) => {
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -1470,26 +1578,35 @@ const ProjectDetail = () => {
       const response = await fetchData(`/task/project/${projectId}/members`);
       setAssignableMembers(response.members || []);
     } catch {
-      toast.error("Failed to load members");
+      toast.error("Failed to load employees");
     }
   }, [projectId]);
 
   const handleCreateTask = useCallback(
     async (e: React.FormEvent) => {
       e.preventDefault();
-      if (!newTask.title.trim() || !newTask.assigneeId || !newTask.startDate || !newTask.dueDate) {
-        return toast.error("Please fill all required fields (title, assignee, start date, due date)");
+      if (!newTask.title.trim() || !newTask.startDate || !newTask.dueDate) {
+        return toast.error("Please fill all required fields (title, start date, due date)");
       }
 
       const start = new Date(newTask.startDate);
       const end = new Date(newTask.dueDate);
+      const projectStart = project ? new Date(project.startDate) : new Date();
+      projectStart.setHours(0, 0, 0, 0);
+      if (start < projectStart || end < projectStart) {
+        return toast.error("Task dates must be on or after the project start date");
+      }
       if (start > end) {
         return toast.error("Start date cannot be after due date");
       }
 
       try {
         setSubmittingTask(true);
-        await postData("/task", { ...newTask, projectId });
+        const payload: any = { ...newTask, projectId };
+        if (!newTask.assigneeId) {
+          delete payload.assigneeId; // allow backend to treat as unassigned
+        }
+        await postData("/task", payload);
         setShowTaskModal(false);
         setNewTask({
           title: "",
@@ -1500,6 +1617,8 @@ const ProjectDetail = () => {
           startDate: "",
           dueDate: "",
         });
+        setStartDateObj(undefined);
+        setDueDateObj(undefined);
         await Promise.all([fetchAllTasks(), fetchUserTasks()]);
         toast.success("Task created!");
       } catch (error: any) {
@@ -1508,7 +1627,7 @@ const ProjectDetail = () => {
         setSubmittingTask(false);
       }
     },
-    [newTask, projectId, fetchAllTasks, fetchUserTasks]
+    [newTask, projectId, fetchAllTasks, fetchUserTasks, project]
   );
 
   useEffect(() => {
@@ -1580,7 +1699,7 @@ const ProjectDetail = () => {
                     <Input
                       placeholder="Search tasks..."
                       value={filters.search}
-                      onChange={(e) => updateFilter("search", e.target.value)}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateFilter("search", e.target.value)}
                       className="h-8"
                     />
                   </div>
@@ -1588,7 +1707,7 @@ const ProjectDetail = () => {
                     <Label className="text-sm">Status</Label>
                     <Select
                       value={filters.status}
-                      onValueChange={(value) => updateFilter("status", value)}
+                      onValueChange={(value: string) => updateFilter("status", value)}
                     >
                       <SelectTrigger className="h-8">
                         <SelectValue />
@@ -1605,7 +1724,7 @@ const ProjectDetail = () => {
                     <Label className="text-sm">Priority</Label>
                     <Select
                       value={filters.priority}
-                      onValueChange={(value) => updateFilter("priority", value)}
+                      onValueChange={(value: string) => updateFilter("priority", value)}
                     >
                       <SelectTrigger className="h-8">
                         <SelectValue />
@@ -1731,13 +1850,14 @@ const ProjectDetail = () => {
             </div>
 
             {/* Team Avatars */}
-            <TeamAvatars categories={project.categories} maxVisible={3} />
+            <TeamAvatars members={project.members || []} maxVisible={3} />
 
             {/* Invite Members Button */}
             <InviteMembersButton
               projectId={project._id}
-              categories={project.categories}
-              onInviteSuccess={fetchProjectDetails}
+              onInviteSuccess={async () => {
+                await Promise.all([fetchProjectDetails(), fetchAssignableMembers()]);
+              }}
             />
           </div>
         </div>
@@ -1868,7 +1988,7 @@ const ProjectDetail = () => {
                     value="calendar"
                     className="text-xs px-2 data-[state=active]:bg-green-600"
                   >
-                    <Calendar className="w-3 h-3 mr-1" />
+              <CalendarIcon className="w-3 h-3 mr-1" />
                     <span className="hidden sm:inline">Calendar</span>
                   </TabsTrigger>
                 </TabsList>
@@ -1885,12 +2005,12 @@ const ProjectDetail = () => {
                         placeholder="Search your tasks..."
                         className="pl-7 h-8 text-sm"
                         value={filters.search}
-                        onChange={(e) => updateFilter("search", e.target.value)}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateFilter("search", e.target.value)}
                       />
                     </div>
                     <Select
                       value={filters.status}
-                      onValueChange={(value) => updateFilter("status", value)}
+                      onValueChange={(value: string) => updateFilter("status", value)}
                     >
                       <SelectTrigger className="w-20 h-8 text-xs">
                         <SelectValue />
@@ -1904,7 +2024,7 @@ const ProjectDetail = () => {
                     </Select>
                     <Select
                       value={filters.priority}
-                      onValueChange={(value) => updateFilter("priority", value)}
+                      onValueChange={(value: string) => updateFilter("priority", value)}
                     >
                       <SelectTrigger className="w-20 h-8 text-xs">
                         <SelectValue />
@@ -1959,6 +2079,7 @@ const ProjectDetail = () => {
                         currentUser={currentUser}
                         userRole={userRole}
                         onTaskUpdate={() => Promise.all([fetchAllTasks(), fetchUserTasks()])}
+                        assignableMembers={filteredAssignableMembers}
                       />
                     ))}
                   </div>
@@ -1973,7 +2094,7 @@ const ProjectDetail = () => {
                       <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
                       <CardTitle className="text-base mb-2">Access Restricted</CardTitle>
                       <p className="text-sm text-gray-600">
-                        {currentUser ? "You are not a member of this project." : "Loading user data..."}
+                        {currentUser ? "You are not an employee of this project." : "Loading user data..."}
                       </p>
                     </CardContent>
                   </Card>
@@ -1988,12 +2109,12 @@ const ProjectDetail = () => {
                             placeholder="Search all tasks..."
                             className="pl-7 h-8 text-sm"
                             value={filters.search}
-                            onChange={(e) => updateFilter("search", e.target.value)}
+                            onChange={(e: React.ChangeEvent<HTMLInputElement>) => updateFilter("search", e.target.value)}
                           />
                         </div>
                         <Select
                           value={filters.status}
-                          onValueChange={(value) => updateFilter("status", value)}
+                          onValueChange={(value: string) => updateFilter("status", value)}
                         >
                           <SelectTrigger className="w-20 h-8 text-xs">
                             <SelectValue />
@@ -2007,7 +2128,7 @@ const ProjectDetail = () => {
                         </Select>
                         <Select
                           value={filters.priority}
-                          onValueChange={(value) => updateFilter("priority", value)}
+                          onValueChange={(value: string) => updateFilter("priority", value)}
                         >
                           <SelectTrigger className="w-20 h-8 text-xs">
                             <SelectValue />
@@ -2062,6 +2183,7 @@ const ProjectDetail = () => {
                                         currentUser={currentUser}
                                         userRole={userRole}
                                         onTaskUpdate={() => Promise.all([fetchAllTasks(), fetchUserTasks()])}
+                                        assignableMembers={assignableMembers}
                                       />
                                     ))}
                                   </div>
@@ -2092,6 +2214,7 @@ const ProjectDetail = () => {
                                     currentUser={currentUser}
                                     userRole={userRole}
                                     onTaskUpdate={() => Promise.all([fetchAllTasks(), fetchUserTasks()])}
+                                    assignableMembers={filteredAssignableMembers}
                                   />
                                 ))}
                             </SortableContext>
@@ -2117,6 +2240,7 @@ const ProjectDetail = () => {
                                     currentUser={currentUser}
                                     userRole={userRole}
                                     onTaskUpdate={() => Promise.all([fetchAllTasks(), fetchUserTasks()])}
+                                    assignableMembers={filteredAssignableMembers}
                                   />
                                 ))}
                             </SortableContext>
@@ -2142,6 +2266,7 @@ const ProjectDetail = () => {
                                     currentUser={currentUser}
                                     userRole={userRole}
                                     onTaskUpdate={() => Promise.all([fetchAllTasks(), fetchUserTasks()])}
+                                    assignableMembers={filteredAssignableMembers}
                                   />
                                 ))}
                             </SortableContext>
@@ -2165,7 +2290,7 @@ const ProjectDetail = () => {
                       <AlertCircle className="w-8 h-8 text-amber-500 mx-auto mb-2" />
                       <CardTitle className="text-base mb-2">Access Restricted</CardTitle>
                       <p className="text-sm text-gray-600">
-                        {currentUser ? "You are not a member of this project." : "Loading user data..."}
+                    {currentUser ? "You are not an employee of this project." : "Loading user data..."}
                       </p>
                     </CardContent>
                   </Card>
@@ -2216,7 +2341,7 @@ const ProjectDetail = () => {
                 <Input
                   required
                   value={newTask.title}
-                  onChange={(e) => setNewTask({ ...newTask, title: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTask({ ...newTask, title: e.target.value })}
                   placeholder="Task title"
                   className="h-8"
                 />
@@ -2227,7 +2352,7 @@ const ProjectDetail = () => {
                   <Label className="text-sm">Status</Label>
                   <Select
                     value={newTask.status}
-                    onValueChange={(value) => setNewTask({ ...newTask, status: value })}
+                    onValueChange={(value: string) => setNewTask({ ...newTask, status: value })}
                   >
                     <SelectTrigger className="h-8">
                       <SelectValue />
@@ -2244,7 +2369,7 @@ const ProjectDetail = () => {
                   <Label className="text-sm">Priority</Label>
                   <Select
                     value={newTask.priority}
-                    onValueChange={(value) => setNewTask({ ...newTask, priority: value })}
+                    onValueChange={(value: string) => setNewTask({ ...newTask, priority: value })}
                   >
                     <SelectTrigger className="h-8">
                       <SelectValue />
@@ -2260,16 +2385,16 @@ const ProjectDetail = () => {
               </div>
 
               <div className="space-y-1">
-                <Label className="text-sm">Assignee *</Label>
+            <Label className="text-sm">Assignee (optional)</Label>
                 <Select
                   value={newTask.assigneeId}
-                  onValueChange={(value) => setNewTask({ ...newTask, assigneeId: value })}
+                  onValueChange={(value: string) => setNewTask({ ...newTask, assigneeId: value })}
                 >
                   <SelectTrigger className="h-8">
                     <SelectValue placeholder="Select" />
                   </SelectTrigger>
                   <SelectContent>
-                    {assignableMembers.map((member) => (
+                    {filteredAssignableMembers.map((member) => (
                       <SelectItem key={member._id} value={member._id}>
                         <div className="flex items-center gap-2">
                           <Avatar className="w-4 h-4">
@@ -2286,26 +2411,78 @@ const ProjectDetail = () => {
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
                   <Label className="text-sm">Start Date *</Label>
-                  <Input
-                    type="date"
-                    required
-                    value={newTask.startDate}
-                    onChange={(e) => setNewTask({ ...newTask, startDate: e.target.value })}
-                    className="h-8"
-                    min={new Date().toISOString().split("T")[0]}
-                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full h-[44px] border-[#d5d7da] rounded-[8px] px-[14px] py-[8px] text-[14px] justify-start text-left font-normal",
+                          !startDateObj && "text-[#717680]"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {startDateObj ? format(startDateObj, "PPP") : "Pick a date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={startDateObj}
+                        onSelect={(date) => {
+                          if (!date) return;
+                          setStartDateObj(date);
+                          setNewTask({ ...newTask, startDate: format(date, "yyyy-MM-dd") });
+                          // Ensure due date baseline respects start date
+                          if (dueDateObj && dueDateObj < date) {
+                            setDueDateObj(date);
+                            setNewTask({ ...newTask, startDate: format(date, "yyyy-MM-dd"), dueDate: format(date, "yyyy-MM-dd") });
+                          }
+                        }}
+                        disabled={(date) => {
+                          const projStart = project ? new Date(project.startDate) : new Date();
+                          projStart.setHours(0, 0, 0, 0);
+                          return date < projStart;
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
 
                 <div className="space-y-1">
                   <Label className="text-sm">Due Date *</Label>
-                  <Input
-                    type="date"
-                    required
-                    value={newTask.dueDate}
-                    onChange={(e) => setNewTask({ ...newTask, dueDate: e.target.value })}
-                    className="h-8"
-                    min={newTask.startDate || new Date().toISOString().split("T")[0]}
-                  />
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className={cn(
+                          "w-full h-[44px] border-[#d5d7da] rounded-[8px] px-[14px] py-[8px] text-[14px] justify-start text-left font-normal",
+                          !dueDateObj && "text-[#717680]"
+                        )}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {dueDateObj ? format(dueDateObj, "PPP") : "Pick a date"}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0">
+                      <Calendar
+                        mode="single"
+                        selected={dueDateObj}
+                        onSelect={(date) => {
+                          if (!date) return;
+                          setDueDateObj(date);
+                          setNewTask({ ...newTask, dueDate: format(date, "yyyy-MM-dd") });
+                        }}
+                        disabled={(date) => {
+                          const projStart = project ? new Date(project.startDate) : new Date();
+                          projStart.setHours(0, 0, 0, 0);
+                          const startBaseline = startDateObj || projStart;
+                          return date < startBaseline;
+                        }}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
                 </div>
               </div>
 
@@ -2313,7 +2490,7 @@ const ProjectDetail = () => {
                 <Label className="text-sm">Description</Label>
                 <Textarea
                   value={newTask.description}
-                  onChange={(e) => setNewTask({ ...newTask, description: e.target.value })}
+                  onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setNewTask({ ...newTask, description: e.target.value })}
                   placeholder="Task details..."
                   rows={3}
                   className="resize-none text-sm"

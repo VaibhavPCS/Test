@@ -376,8 +376,8 @@ const changeMemberRole = async (req, res) => {
     const { newRole } = req.body;
     const userId = req.userId;
 
-    if (!newRole || !['admin', 'lead', 'member', 'viewer'].includes(newRole)) {
-      return res.status(400).json({ message: "Invalid role. Must be admin, lead, member, or viewer" });
+    if (!newRole || !['admin', 'lead', 'member', 'viewer', 'head'].includes(newRole)) {
+      return res.status(400).json({ message: "Invalid role. Must be admin, lead, member, viewer, or head" });
     }
 
     // Get workspace and check permissions
@@ -598,7 +598,7 @@ const inviteMember = async (req, res) => {
       return res.status(400).json({ message: "Invalid email format" });
     }
 
-    if (!['member', 'admin', 'lead', 'viewer'].includes(role)) {
+    if (!['member', 'admin', 'lead', 'viewer', 'head'].includes(role)) {
       return res.status(400).json({ message: "Invalid role" });
     }
 
