@@ -552,10 +552,21 @@ const deleteWorkspace = async (req, res) => {
       return res.status(404).json({ message: "Workspace not found" });
     }
 
-    // Check if user is owner
+    // ✅ ENHANCED: Better error messages for workspace deletion
     const member = workspace.members.find(m => m.userId.toString() === userId);
-    if (!member || member.role !== 'owner') {
-      return res.status(403).json({ message: "Only the owner can delete workspace" });
+
+    // Check if user is even a member of the workspace
+    if (!member) {
+      return res.status(403).json({
+        message: "You are not a member of this workspace. Only the workspace owner can delete it."
+      });
+    }
+
+    // Check if user is owner
+    if (member.role !== 'owner') {
+      return res.status(403).json({
+        message: `Only the workspace owner can delete this workspace.Please contact the workspace owner.`
+      });
     }
 
     // ✅ FIXED: Use atomic update instead of save() to avoid validation
@@ -573,7 +584,7 @@ const deleteWorkspace = async (req, res) => {
     // Remove workspace from all users
     await User.updateMany(
       { 'workspaces.workspaceId': workspaceId },
-      { 
+      {
         $pull: { workspaces: { workspaceId: workspaceId } }
       }
     );
@@ -584,8 +595,8 @@ const deleteWorkspace = async (req, res) => {
       { $unset: { currentWorkspace: "" } }
     );
 
-    res.status(200).json({ 
-      message: "Workspace archived successfully. It will be permanently deleted in 7 days." 
+    res.status(200).json({
+      message: "Workspace archived successfully. It will be permanently deleted in 7 days."
     });
 
   } catch (error) {
@@ -662,10 +673,12 @@ const inviteMember = async (req, res) => {
 
       // If user was previously removed within 7-day window, restore and delete archive
       let restoredFromArchive = false;
+      let restoredRole = null;
       try {
         const archive = await WorkspaceMemberArchive.findOne({ workspaceId, userId: inviteUser._id });
         if (archive && archive.expiresAt && archive.expiresAt > new Date()) {
           restoredFromArchive = true;
+          restoredRole = archive.role; // restore prior role
           // Clean up archive so TTL doesn't re-trigger
           await WorkspaceMemberArchive.deleteOne({ _id: archive._id });
         }
@@ -678,7 +691,7 @@ const inviteMember = async (req, res) => {
       inviteUser.workspaces = inviteUser.workspaces || [];
       inviteUser.workspaces.push({
         workspaceId: workspaceId,
-        role: role,
+        role: restoredRole || role,
         joinedAt: new Date()
       });
       
@@ -696,7 +709,7 @@ const inviteMember = async (req, res) => {
           $push: {
             members: {
               userId: inviteUser._id,
-              role: role,
+              role: restoredRole || role,
               joinedAt: new Date()
             }
           }
@@ -711,10 +724,10 @@ const inviteMember = async (req, res) => {
           sender: userId,
           type: 'workspace_invite',
           title: 'Added to Workspace',
-          message: `You've been added to ${workspace.name} workspace as ${role} by ${inviter.name}`,
+          message: `You've been added to ${workspace.name} workspace as ${restoredRole || role} by ${inviter.name}`,
           data: {
             workspaceId: workspaceId,
-            role: role,
+            role: restoredRole || role,
             inviterName: inviter.name
           }
         });
@@ -726,7 +739,7 @@ const inviteMember = async (req, res) => {
       console.log('User added directly to workspace:', {
         userId: inviteUser._id,
         workspaceId,
-        role
+        role: restoredRole || role
       });
 
       return res.status(200).json({
@@ -737,7 +750,7 @@ const inviteMember = async (req, res) => {
           _id: inviteUser._id,
           name: inviteUser.name,
           email: inviteUser.email,
-          role: role
+          role: restoredRole || role
         }
       });
     }
@@ -788,11 +801,25 @@ const acceptInvite = async (req, res) => {
       return res.status(200).json({ message: "You are already a member of this workspace" });
     }
 
+    // If user was previously removed within 7-day window, restore and delete archive
+    let restoredFromArchive = false;
+    let restoredRole = null;
+    try {
+      const archive = await WorkspaceMemberArchive.findOne({ workspaceId: invite.workspace._id, userId });
+      if (archive && archive.expiresAt && archive.expiresAt > new Date()) {
+        restoredFromArchive = true;
+        restoredRole = archive.role; // restore prior role
+        await WorkspaceMemberArchive.deleteOne({ _id: archive._id });
+      }
+    } catch (archiveCheckErr) {
+      console.error('Archive check failed:', archiveCheckErr);
+    }
+
     // Add user to workspace
     user.workspaces = user.workspaces || [];
     user.workspaces.push({
       workspaceId: invite.workspace._id,
-      role: invite.role,
+      role: restoredRole || invite.role,
       joinedAt: new Date()
     });
 
@@ -808,7 +835,7 @@ const acceptInvite = async (req, res) => {
     workspace.members = workspace.members || [];
     workspace.members.push({
       userId: user._id,
-      role: invite.role,
+      role: restoredRole || invite.role,
       joinedAt: new Date()
     });
     await workspace.save();
@@ -818,11 +845,11 @@ const acceptInvite = async (req, res) => {
     await invite.save();
 
     res.status(200).json({
-      message: "Successfully joined workspace",
+      message: restoredFromArchive ? "Successfully restored and joined workspace" : "Successfully joined workspace",
       workspace: {
         _id: workspace._id,
         name: workspace.name,
-        role: invite.role
+        role: restoredRole || invite.role
       }
     });
 
@@ -856,78 +883,90 @@ const getCurrentWorkspace = async (req, res) => {
 const getAllWorkspaceTasks = async (req, res) => {
   try {
     const userId = req.userId;
-    
+
     // Get user with current workspace
     const user = await User.findById(userId);
-    if (!user.currentWorkspace) {
+    if (!user?.currentWorkspace) {
       return res.status(200).json({ tasks: [] });
     }
 
     // Get workspace to check user's role in this workspace
     const workspace = await Workspace.findById(user.currentWorkspace);
     if (!workspace) {
-      return res.status(404).json({ message: "Workspace not found" });
+      return res.status(404).json({ message: 'Workspace not found' });
     }
 
     // Find user's role in this workspace
     const userMembership = workspace.members.find(
-      member => member.userId.toString() === userId
+      (member) => member.userId.toString() === userId
     );
 
     if (!userMembership) {
-      return res.status(403).json({ message: "You are not a member of this workspace" });
+      return res.status(403).json({ message: 'You are not a member of this workspace' });
     }
 
-    let taskFilter = {
-      isActive: true
-    };
+    const isSuperAdmin = user.role === 'super_admin';
+    const isOwner = userMembership.role === 'owner';
+    const isWorkspaceAdmin = userMembership.role === 'admin';
+    const isGlobalAdmin = user.role === 'admin';
 
-    // Role-based task filtering logic
-    if (user.role === 'super_admin') {
-      // ✅ Super Admin: ALL tasks in ANY workspace
-      taskFilter = {
-        ...taskFilter
-        // No workspace filter - can see across workspaces if needed
-        // For now, limit to current workspace
-      };
-    } else if (userMembership.role === 'owner' || userMembership.role === 'admin') {
-      // ✅ Workspace Owner/Admin: ALL tasks in THIS workspace only
-      taskFilter = {
-        ...taskFilter
-        // Will add workspace filter through Project lookup
-      };
-    } else {
-      // ✅ Regular Members: Only their assigned tasks
-      taskFilter = {
-        ...taskFilter,
-        assignee: userId
-      };
-    }
+    // Admin visibility rule: must be BOTH global admin and workspace admin
+    const canViewAllInWorkspace = isSuperAdmin || isOwner || (isWorkspaceAdmin && isGlobalAdmin);
 
-    // Find all projects in current workspace that user has access to
-    let accessibleProjects;
-    
-    if (user.role === 'super_admin' || ['owner', 'admin'].includes(userMembership.role)) {
-      // Get ALL projects in workspace
-      accessibleProjects = await Project.find({
-        workspace: user.currentWorkspace,
-        isActive: true
-      }).select('_id');
-    } else {
-      // Get only projects where user is a member
-      accessibleProjects = await Project.find({
+    let taskFilter = { isActive: true };
+
+    if (canViewAllInWorkspace) {
+      // All tasks from all active projects in the current workspace
+      const allProjects = await Project.find({
         workspace: user.currentWorkspace,
         isActive: true,
-        'categories.members.userId': userId
       }).select('_id');
+
+      const projectIds = allProjects.map((p) => p._id);
+      taskFilter.project = { $in: projectIds };
+      // no assignee restriction
+    } else {
+      // Project Lead: see all tasks for projects they lead
+      const leadProjects = await Project.find({
+        workspace: user.currentWorkspace,
+        isActive: true,
+        projectHead: userId,
+      }).select('_id');
+
+      // Member: see only their tasks on projects where they are a member
+      const memberProjects = await Project.find({
+        workspace: user.currentWorkspace,
+        isActive: true,
+        'members.userId': userId,
+      }).select('_id');
+
+      const leadIds = leadProjects.map((p) => p._id);
+      const memberIds = memberProjects.map((p) => p._id);
+
+      const orConditions = [];
+      if (leadIds.length > 0) {
+        // All tasks in projects led by the user
+        orConditions.push({ project: { $in: leadIds } });
+      }
+      if (memberIds.length > 0) {
+        // Only tasks assigned to the user in member projects
+        orConditions.push({ project: { $in: memberIds }, assignee: userId });
+      }
+
+      if (orConditions.length === 0) {
+        // Fallback: only tasks assigned to the user within the workspace
+        const allProjects = await Project.find({
+          workspace: user.currentWorkspace,
+          isActive: true,
+        }).select('_id');
+        const projectIds = allProjects.map((p) => p._id);
+        taskFilter.project = { $in: projectIds };
+        taskFilter.assignee = userId;
+      } else {
+        taskFilter.$or = orConditions;
+      }
     }
 
-    const projectIds = accessibleProjects.map(p => p._id);
-
-    // Add project filter to task filter
-    taskFilter.project = { $in: projectIds };
-
-    // Get tasks based on role and filters
     const tasks = await Task.find(taskFilter)
       .populate('assignee', 'name email')
       .populate('creator', 'name email')
@@ -936,12 +975,11 @@ const getAllWorkspaceTasks = async (req, res) => {
         path: 'project',
         populate: {
           path: 'workspace',
-          select: 'name'
-        }
+          select: 'name',
+        },
       })
       .sort({ createdAt: -1 });
 
-    // Add serial numbers for gallery view
     const tasksWithSerialNumber = tasks.map((task, index) => ({
       serialNumber: index + 1,
       _id: task._id,
@@ -954,19 +992,18 @@ const getAllWorkspaceTasks = async (req, res) => {
       creator: task.creator,
       createdAt: task.createdAt,
       completedAt: task.completedAt,
-      handoverNotes: task.handoverNotes
+      handoverNotes: task.handoverNotes,
     }));
 
-    res.status(200).json({ 
+    res.status(200).json({
       tasks: tasksWithSerialNumber,
       totalTasks: tasksWithSerialNumber.length,
       userRole: userMembership.role,
-      workspaceName: workspace.name
+      workspaceName: workspace.name,
     });
-
   } catch (error) {
     console.error('Get all workspace tasks error:', error);
-    res.status(500).json({ message: "Internal Server Error" });
+    res.status(500).json({ message: 'Internal Server Error' });
   }
 };
 

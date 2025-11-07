@@ -5,6 +5,7 @@ import mongoose from 'mongoose';
 import morgan from 'morgan';
 import cookieParser from 'cookie-parser';
 import routes from './routes/index.js';
+
 import {
   errorHandler,
   notFoundHandler,
@@ -61,7 +62,7 @@ app.use(xss());
 // CORS configuration
 const allowedOrigins = process.env.NODE_ENV === 'production'
   ? [process.env.FRONTEND_URL]
-  : ['http://localhost:5173', 'http://127.0.0.1:2000'];
+  : ['http://localhost:5173', 'http://localhost:5174', 'http://127.0.0.1:2000'];
 
 app.use(cors({
     origin: allowedOrigins,

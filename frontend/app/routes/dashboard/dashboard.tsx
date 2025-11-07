@@ -37,6 +37,14 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 
+// Helper to limit visible words and append ellipsis
+const limitWords = (text: string, maxWords: number) => {
+  if (!text) return "";
+  const words = text.trim().split(/\s+/);
+  if (words.length <= maxWords) return text;
+  return words.slice(0, maxWords).join(" ") + "...";
+};
+
 // ==================== INTERFACES ====================
 
 interface Workspace {
@@ -132,6 +140,13 @@ const Dashboard = () => {
     completed: 0,
     total: 0,
   });
+  const [accessibleProjects, setAccessibleProjects] = useState<Project[]>([]);
+  const [accessibleProjectIds, setAccessibleProjectIds] = useState<Set<string>>(new Set());
+
+  const currentUserId = (user as any)?.id || (user as any)?._id || "";
+  const userRole = (user as any)?.role || "";
+  const isAdmin = ["admin", "super_admin", "super-admin"].includes(userRole);
+  const isLead = userRole === "lead";
 
   // ==================== DATA FETCHING ====================
 
@@ -145,6 +160,7 @@ const Dashboard = () => {
       // Store current workspace in localStorage for API calls
       if (response.currentWorkspace) {
         localStorage.setItem("currentWorkspaceId", response.currentWorkspace._id);
+        localStorage.setItem("workspace-id", response.currentWorkspace._id);
       }
     } catch (error) {
       console.error("Error fetching workspaces:", error);
@@ -157,6 +173,7 @@ const Dashboard = () => {
       await postData("/workspace/switch", { workspaceId });
       // Update localStorage
       localStorage.setItem("currentWorkspaceId", workspaceId);
+      localStorage.setItem("workspace-id", workspaceId);
       // Update current workspace state
       const selectedWorkspace = workspaces.find(w => w._id === workspaceId);
       setCurrentWorkspace(selectedWorkspace || null);
@@ -175,12 +192,34 @@ const Dashboard = () => {
 
   const fetchProjectStatistics = useCallback(async () => {
     try {
-      const response = await fetchData("/project/statistics/overview");
-      setProjectStats(response);
+      const response = await fetchData("/project/recent?limit=1000&sortBy=startDate");
+      const allProjects: Project[] = response.projects || [];
+      const membershipFiltered = allProjects.filter((p: any) => {
+        const inMembers = Array.isArray(p.members)
+          ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+          : Array.isArray(p.categories)
+          ? p.categories.some(
+              (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
+            )
+          : false;
+        const isHead = p?.projectHead?._id === currentUserId;
+        return inMembers || isHead;
+      });
+      // Admins see all projects; others see only membership-based
+      const statsSource = isAdmin ? allProjects : membershipFiltered;
+      const totalsAdj = {
+        totalProjects: statsSource.length,
+        ongoingProjects: statsSource.filter(
+          (p: any) => (p?.status || "").toLowerCase() === "in progress" || (p?.status || "").toLowerCase() === "ongoing"
+        ).length,
+        completedProjects: statsSource.filter((p: any) => (p?.status || "").toLowerCase() === "completed").length,
+        proposedProjects: statsSource.filter((p: any) => (p?.status || "").toLowerCase() === "planning").length,
+      };
+
+      setProjectStats(totalsAdj);
     } catch (error) {
-      console.error("Error fetching project statistics:", error);
+      console.error("Error computing project statistics:", error);
       toast.error("Failed to load project statistics");
-      // Fallback to empty stats on error
       setProjectStats({
         totalProjects: 0,
         ongoingProjects: 0,
@@ -188,7 +227,36 @@ const Dashboard = () => {
         proposedProjects: 0,
       });
     }
-  }, []);
+  }, [currentUserId, isAdmin]);
+
+  const fetchAccessibleProjects = useCallback(async () => {
+    try {
+      const response = await fetchData("/project/recent?limit=1000&sortBy=startDate");
+      const allProjects = response.projects || [];
+      if (isAdmin) {
+        setAccessibleProjects(allProjects);
+        setAccessibleProjectIds(new Set(allProjects.map((p: any) => p._id)));
+        return;
+      }
+      const filtered = allProjects.filter((p: any) => {
+        const inMembers = Array.isArray(p.members)
+          ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+          : Array.isArray(p.categories)
+          ? p.categories.some(
+              (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
+            )
+          : false;
+        const isHead = p?.projectHead?._id === currentUserId;
+        return inMembers || isHead;
+      });
+      setAccessibleProjects(filtered);
+      setAccessibleProjectIds(new Set(filtered.map((p: any) => p._id)));
+    } catch (error) {
+      console.error("Error fetching accessible projects:", error);
+      setAccessibleProjects([]);
+      setAccessibleProjectIds(new Set());
+    }
+  }, [isAdmin, currentUserId]);
 
   // Fetch monthly project statistics for pie chart
   const fetchMonthlyProjectStats = useCallback(async (month: number, year: number) => {
@@ -197,11 +265,23 @@ const Dashboard = () => {
       const response = await fetchData("/project/recent?limit=1000&sortBy=startDate");
       const allProjects = response.projects || [];
 
+      const membershipFiltered: Project[] = allProjects.filter((p: any) => {
+        const inMembers = Array.isArray(p.members)
+          ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+          : Array.isArray(p.categories)
+          ? p.categories.some(
+              (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
+            )
+          : false;
+        const isHead = p?.projectHead?._id === currentUserId;
+        return inMembers || isHead;
+      });
+
       // Filter projects that are active in the selected month
       const monthStart = new Date(year, month, 1);
       const monthEnd = new Date(year, month + 1, 0); // Last day of the month
 
-      const projectsInMonth = allProjects.filter((project: Project) => {
+      const projectsInMonth = (isAdmin ? allProjects : membershipFiltered).filter((project: Project) => {
         const projectStart = new Date(project.startDate);
         const projectEnd = new Date(project.endDate);
 
@@ -242,7 +322,7 @@ const Dashboard = () => {
         total: 0,
       });
     }
-  }, []);
+  }, [isAdmin, currentUserId]);
 
   const fetchRecentProjects = useCallback(async () => {
     try {
@@ -255,7 +335,6 @@ const Dashboard = () => {
       const response = await fetchData(`/project/recent?${params}`);
       let projects = response.projects || [];
 
-      // Apply client-side date filtering based on startDate
       if (dateRangeFilter.start || dateRangeFilter.end) {
         projects = projects.filter((project: Project) => {
           const startDate = new Date(project.startDate);
@@ -273,26 +352,48 @@ const Dashboard = () => {
         });
       }
 
+      if (!isAdmin) {
+        projects = projects.filter((p: any) => {
+          const inMembers = Array.isArray(p.members)
+            ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+            : Array.isArray(p.categories)
+            ? p.categories.some(
+                (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
+              )
+            : false;
+          const isHead = p?.projectHead?._id === currentUserId;
+          return inMembers || isHead;
+        });
+      }
+
       setRecentProjects(projects);
     } catch (error) {
       console.error("Error fetching recent projects:", error);
       toast.error("Failed to load recent projects");
-      // Fallback to empty array on error
       setRecentProjects([]);
     }
-  }, [projectTypeFilter, dateRangeFilter]);
+  }, [projectTypeFilter, dateRangeFilter, isAdmin, currentUserId]);
 
   const fetchTasks = useCallback(async () => {
     try {
       const response = await fetchData("/workspace/all-tasks");
-      const tasksData = response.tasks || [];
+      let tasksData = response.tasks || [];
+
+      if (!isAdmin) {
+        if (isLead && accessibleProjectIds && accessibleProjectIds.size > 0) {
+          tasksData = tasksData.filter((t: any) => t?.project?._id && accessibleProjectIds.has(t.project._id));
+        } else {
+          tasksData = tasksData.filter((t: any) => t?.assignedTo?._id === currentUserId);
+        }
+      }
+
       setTasks(tasksData);
     } catch (error) {
       console.error("Error fetching tasks:", error);
       toast.error("Failed to load tasks");
       setTasks([]);
     }
-  }, []);
+  }, [isAdmin, isLead, accessibleProjectIds, currentUserId]);
 
   // Filter tasks based on status and search query
   useEffect(() => {
@@ -321,18 +422,29 @@ const Dashboard = () => {
     if (isAuthenticated) {
       const loadData = async () => {
         setLoading(true);
+        await fetchWorkspaces();
+        await fetchAccessibleProjects();
         await Promise.all([
-          fetchWorkspaces(),
           fetchProjectStatistics(),
           fetchRecentProjects(),
-          fetchTasks(),
           fetchMonthlyProjectStats(selectedMonth, selectedYear),
         ]);
+        await fetchTasks();
         setLoading(false);
       };
       loadData();
     }
-  }, [isAuthenticated, fetchWorkspaces, fetchProjectStatistics, fetchRecentProjects, fetchTasks, fetchMonthlyProjectStats, selectedMonth, selectedYear]);
+  }, [
+    isAuthenticated,
+    fetchWorkspaces,
+    fetchAccessibleProjects,
+    fetchProjectStatistics,
+    fetchRecentProjects,
+    fetchTasks,
+    fetchMonthlyProjectStats,
+    selectedMonth,
+    selectedYear,
+  ]);
 
   // ==================== HELPER FUNCTIONS ====================
 
@@ -748,39 +860,37 @@ const Dashboard = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-[15px]">
-                      {/* Workspace Dropdown (visible only to global admin) */}
-                      {user?.role === "admin" ? (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
+                      {/* Workspace Dropdown */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
+                          >
+                            <Building2 className="w-4 h-4" />
+                            {currentWorkspace?.name || "Workspace"}
+                            <ChevronDown className="w-3 h-3" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-[200px]">
+                          {workspaces.map((workspace) => (
+                            <DropdownMenuItem
+                              key={workspace._id}
+                              onClick={() => handleSwitchWorkspace(workspace._id)}
+                              className={cn(
+                                "cursor-pointer",
+                                currentWorkspace?._id === workspace._id && "bg-blue-50"
+                              )}
                             >
-                              <Building2 className="w-4 h-4" />
-                              {currentWorkspace?.name || "Workspace"}
-                              <ChevronDown className="w-3 h-3" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-[200px]">
-                            {workspaces.map((workspace) => (
-                              <DropdownMenuItem
-                                key={workspace._id}
-                                onClick={() => handleSwitchWorkspace(workspace._id)}
-                                className={cn(
-                                  "cursor-pointer",
-                                  currentWorkspace?._id === workspace._id && "bg-blue-50"
-                                )}
-                              >
-                                {workspace.name}
-                                {currentWorkspace?._id === workspace._id && (
-                                  <span className="ml-auto text-blue-600">✓</span>
-                                )}
-                              </DropdownMenuItem>
-                            ))}
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      ) : null}
+                              {workspace.name}
+                              {currentWorkspace?._id === workspace._id && (
+                                <span className="ml-auto text-blue-600">✓</span>
+                              )}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
 
                       {/* Project Type Filter - HIDDEN */}
                       {/* <DropdownMenu>
@@ -893,7 +1003,7 @@ const Dashboard = () => {
                     </div>
                   </div>
                   <p className="font-['Inter'] font-normal text-[12px] text-[#717182] leading-[12px] tracking-[0.5px]">
-                    Latest Projects Under Development and Execution
+                    Complete project profile including milestones and task details
                   </p>
                 </div>
               </CardHeader>
@@ -958,11 +1068,11 @@ const Dashboard = () => {
                             <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px]">
                               {index + 1}
                             </td>
-                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px] max-w-[200px] truncate">
-                              {project.title}
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px] max-w-[200px] overflow-hidden text-ellipsis whitespace-nowrap" title={project.title}>
+                              {limitWords(project.title, 2)}
                             </td>
-                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px] max-w-[250px] truncate">
-                              {project.description || "No description"}
+                            <td className="px-[16px] py-[14px] text-[12px] font-['Inter'] font-normal text-black tracking-[0.5px] max-w-[250px] overflow-hidden text-ellipsis whitespace-nowrap" title={project.description || "No description"}>
+                              {limitWords(project.description || "No description", 3)}
                             </td>
                             <td className="px-[16px] py-[14px]">
                               <StatusBadge status={project.status} />

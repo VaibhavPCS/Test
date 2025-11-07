@@ -18,6 +18,10 @@ const notificationSchema = new Schema(
         "task_assigned",
         "task_updated",
         "task_comment",
+        "task_deleted",
+        "task_approval_pending",  // ✅ NEW: When employee marks task as done
+        "task_approved",           // ✅ NEW: When project lead approves task
+        "task_rejected",           // ✅ NEW: When project lead rejects task
         "comment_reply",
         "project_created",
         "project_updated",

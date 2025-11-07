@@ -64,6 +64,7 @@ const getEmailTemplate = (title, message, type) => {
       case 'task_assigned': return '📋';
       case 'task_updated': return '✏️';
       case 'task_comment': return '💬';
+      case 'member_joined': return '👋';
       default: return '📢';
     }
   };

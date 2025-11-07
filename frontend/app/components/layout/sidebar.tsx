@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../../provider/auth-context';
-import { fetchData, patchData } from '@/lib/fetch-util';
+import { fetchData, patchData, postData } from '@/lib/fetch-util';
 import {
   Home,
   Building2,
@@ -36,6 +36,7 @@ interface Notification {
     workspaceId?: string;
     projectId?: string;
     taskId?: string;
+    meetingId?: string;
     inviteId?: string;
   };
   createdAt: string;
@@ -174,6 +175,48 @@ const Sidebar = () => {
     }
   };
 
+  // Navigate to relevant page for a notification and mark as read
+  const handleNotificationClick = async (notification: Notification) => {
+    try {
+      if (!notification.isRead) {
+        await markAsRead(notification._id);
+      }
+      // Close any open notification panel
+      setShowNotifications(false);
+
+      const { data } = notification;
+      // Persist and switch workspace on backend if provided
+      if (data.workspaceId) {
+        try {
+          localStorage.setItem('currentWorkspaceId', data.workspaceId);
+        } catch {}
+        try {
+          await postData('/workspace/switch', { workspaceId: data.workspaceId });
+        } catch (err) {
+          console.error('Failed to switch workspace from notification:', err);
+        }
+      }
+
+      // Choose the most specific route first
+      let targetPath = '/dashboard';
+      if (data.taskId) {
+        targetPath = `/task/${data.taskId}`;
+      } else if (data.projectId) {
+        targetPath = `/project/${data.projectId}`;
+      } else if (data.workspaceId) {
+        targetPath = `/workspace`;
+      } else if (data.meetingId) {
+        targetPath = `/meetings`;
+      } else if (data.inviteId) {
+        targetPath = `/workspace`;
+      }
+
+      navigate(targetPath);
+    } catch (err) {
+      console.error('Notification navigation error:', err);
+    }
+  };
+
   const handleLogout = async () => {
     try {
       await logout();
@@ -257,7 +300,7 @@ const Sidebar = () => {
                       ? 'bg-blue-50 border-l-4 border-l-blue-500 hover:bg-blue-100' 
                       : 'hover:bg-gray-50'
                   }`}
-                  onClick={() => !notification.isRead && markAsRead(notification._id)}
+                  onClick={() => handleNotificationClick(notification)}
                 >
                   <div className="flex items-start space-x-3">
                     <div className="text-lg flex-shrink-0">
@@ -348,7 +391,7 @@ const Sidebar = () => {
                     ? 'bg-blue-50 border-l-4 border-l-blue-500 hover:bg-blue-100' 
                     : 'hover:bg-gray-50'
                 }`}
-                onClick={() => !notification.isRead && markAsRead(notification._id)}
+                onClick={() => handleNotificationClick(notification)}
               >
                 <div className="flex items-start space-x-3">
                   <div className="text-lg flex-shrink-0">
@@ -470,7 +513,7 @@ const Sidebar = () => {
                     to={item.href}
                     className={`flex items-center px-3 py-3 text-sm font-medium rounded-md transition-colors group ${
                       isActive(item.href)
-                        ? 'bg-blue-50 text-blue-700 border-r-2 border-blue-700'
+                        ? 'bg-[#FF6B2C] text-white'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                     }`}
                   >
@@ -524,14 +567,14 @@ const Sidebar = () => {
                     to={item.href}
                     className={`p-3 rounded-md transition-colors group relative ${
                       isActive(item.href)
-                        ? 'bg-blue-50 text-blue-700'
+                        ? 'bg-[#FF6B2C] text-white'
                         : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                     }`}
                     title={item.name}
                   >
                     <Icon className="w-5 h-5" />
                     {isActive(item.href) && (
-                      <div className="absolute -right-[1px] top-0 bottom-0 w-[2px] bg-blue-700 rounded-l"></div>
+                      <div className="absolute -right-[1px] top-0 bottom-0 w-[2px] bg-[#FF6B2C] rounded-l"></div>
                     )}
                   </Link>
                 );

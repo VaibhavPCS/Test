@@ -13,7 +13,8 @@ import {
   getAssignableMembers,
   deleteTask,    // ✅ Import delete function
   approveTask,   // ✅ NEW: Import approve function
-  rejectTask     // ✅ NEW: Import reject function
+  rejectTask,    // ✅ ENHANCED: Import reject function
+  reassignApprovedTask  // ✅ NEW: Import reassign function
 } from '../controllers/task-controller.js';
 
 const router = express.Router();
@@ -29,7 +30,7 @@ router.use(authenticateToken);
 
 /**
  * @swagger
- * /tasks/{taskId}:
+ * /task/{taskId}:
  *   delete:
  *     summary: Delete a task
  *     tags: [Tasks]
@@ -55,7 +56,7 @@ router.delete('/:taskId', deleteTask);
 
 /**
  * @swagger
- * /tasks/{taskId}/handover:
+ * /task/{taskId}/handover:
  *   patch:
  *     summary: Update handover notes for a task
  *     tags: [Tasks]
@@ -113,7 +114,7 @@ router.post(
 
 /**
  * @swagger
- * /tasks/{taskId}/status:
+ * /task/{taskId}/status:
  *   patch:
  *     summary: Update the status of a task
  *     tags: [Tasks]
@@ -151,7 +152,7 @@ router.post('/:taskId/status', updateTaskStatus);
 
 /**
  * @swagger
- * /tasks/{taskId}/approve:
+ * /task/{taskId}/approve:
  *   post:
  *     summary: Approve a task (project head or admin only)
  *     tags: [Tasks]
@@ -179,9 +180,9 @@ router.post('/:taskId/approve', approveTask);
 
 /**
  * @swagger
- * /tasks/{taskId}/reject:
+ * /task/{taskId}/reject:
  *   post:
- *     summary: Reject a task (project head or admin only)
+ *     summary: Reject a task with new dates (project head or admin only)
  *     tags: [Tasks]
  *     security:
  *       - bearerAuth: []
@@ -192,20 +193,34 @@ router.post('/:taskId/approve', approveTask);
  *         schema:
  *           type: string
  *     requestBody:
- *       required: false
+ *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
+ *             required:
+ *               - newStartDate
+ *               - newDueDate
  *             properties:
  *               reason:
  *                 type: string
  *                 example: Needs more work on the implementation
+ *               newStartDate:
+ *                 type: string
+ *                 format: date
+ *                 example: 2024-02-01
+ *               newDueDate:
+ *                 type: string
+ *                 format: date
+ *                 example: 2024-02-15
+ *               reassigneeId:
+ *                 type: string
+ *                 example: 507f1f77bcf86cd799439011
  *     responses:
  *       200:
- *         description: Task rejected successfully.
+ *         description: Task rejected successfully with new dates.
  *       400:
- *         description: Task is not pending approval.
+ *         description: Task is not pending approval or invalid dates.
  *       401:
  *         description: Unauthorized.
  *       403:
@@ -217,7 +232,57 @@ router.post('/:taskId/reject', rejectTask);
 
 /**
  * @swagger
- * /tasks/{taskId}:
+ * /task/{taskId}/reassign:
+ *   post:
+ *     summary: Reassign an approved task (project head or admin only)
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - assigneeId
+ *               - startDate
+ *               - dueDate
+ *             properties:
+ *               assigneeId:
+ *                 type: string
+ *                 example: 507f1f77bcf86cd799439011
+ *               startDate:
+ *                 type: string
+ *                 format: date
+ *                 example: 2024-02-01
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *                 example: 2024-02-15
+ *     responses:
+ *       200:
+ *         description: Task reassigned successfully.
+ *       400:
+ *         description: Task is not approved or invalid data.
+ *       401:
+ *         description: Unauthorized.
+ *       403:
+ *         description: Only project head or admin can reassign.
+ *       404:
+ *         description: Task not found.
+ */
+router.post('/:taskId/reassign', reassignApprovedTask);
+
+/**
+ * @swagger
+ * /task/{taskId}:
  *   get:
  *     summary: Get a task by ID
  *     tags: [Tasks]
@@ -243,7 +308,7 @@ router.get('/:taskId', getTaskById);
 
 /**
  * @swagger
- * /tasks/{taskId}:
+ * /task/{taskId}:
  *   put:
  *     summary: Update a task
  *     tags: [Tasks]
@@ -294,7 +359,7 @@ router.put('/:taskId', updateTask);
 
 /**
  * @swagger
- * /tasks:
+ * /task:
  *   post:
  *     summary: Create a new task
  *     tags: [Tasks]
@@ -386,7 +451,7 @@ router.post('/', createTask);
 
 /**
  * @swagger
- * /tasks/project/{projectId}:
+ * /task/project/{projectId}:
  *   get:
  *     summary: Get all tasks for a project
  *     tags: [Tasks]
@@ -410,7 +475,7 @@ router.get('/project/:projectId', getProjectTasks);
 
 /**
  * @swagger
- * /tasks/project/{projectId}/user:
+ * /task/project/{projectId}/user:
  *   get:
  *     summary: Get all tasks for the current user in a project
  *     tags: [Tasks]
@@ -432,7 +497,7 @@ router.get('/project/:projectId/user', getUserProjectTasks);
 
 /**
  * @swagger
- * /tasks/project/{projectId}/members:
+ * /task/project/{projectId}/members:
  *   get:
  *     summary: Get assignable members for a task in a project
  *     tags: [Tasks]

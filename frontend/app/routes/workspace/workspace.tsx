@@ -94,6 +94,11 @@ const fetchWorkspaces = useCallback(async () => {
     const workspaceList = response.workspaces?.map((w: any) => w.workspaceId).filter(Boolean) || [];
     setWorkspaces(workspaceList);
     setCurrentWorkspace(response.currentWorkspace);
+    // Persist current workspace id for request headers
+    if (response.currentWorkspace?._id) {
+      localStorage.setItem('workspace-id', response.currentWorkspace._id);
+      localStorage.setItem('currentWorkspaceId', response.currentWorkspace._id);
+    }
   } catch (error) {
     console.error('Failed to load workspaces', error);
   }
@@ -103,25 +108,48 @@ const fetchWorkspaces = useCallback(async () => {
   const fetchProjects = useCallback(async () => {
     try {
       const response = await fetchData('/project');
-      setProjects(response.projects);
+      const list: Project[] = response.projects || [];
+      const currentUserId = (user as any)?.id || (user as any)?._id;
+      const isAdmin = ['admin', 'super_admin', 'super-admin'].includes((user as any)?.role);
+      const filtered = isAdmin
+        ? list
+        : list.filter((p: any) => {
+            const isHead = p?.projectHead?._id === currentUserId;
+            const inMembers = Array.isArray(p?.members)
+              ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+              : Array.isArray(p?.categories)
+              ? p.categories.some(
+                  (c: any) => Array.isArray(c.members) && c.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+                )
+              : false;
+            return isHead || inMembers;
+          });
+      setProjects(filtered);
     } catch (error) {
       console.error('Failed to load projects', error);
     }
-  }, []);
+  }, [user]);
 
   useEffect(() => {
     if (isAuthenticated) {
-      fetchWorkspaces();
-      fetchProjects();
-      setLoading(false);
+      // Ensure workspaces are loaded and currentWorkspace is set before fetching projects
+      (async () => {
+        setLoading(true);
+        await fetchWorkspaces();
+        await fetchProjects();
+        setLoading(false);
+      })();
     }
   }, [isAuthenticated, fetchWorkspaces, fetchProjects]);
 
 const switchWorkspace = async (workspaceId: string) => {
   try {
     await postData('/workspace/switch', { workspaceId }); // ✅ Change from '/workspaces/switch' to '/workspace/switch'
-    fetchWorkspaces();
-    fetchProjects();
+    // Persist new workspace id immediately so subsequent requests use correct header
+    localStorage.setItem('workspace-id', workspaceId);
+    localStorage.setItem('currentWorkspaceId', workspaceId);
+    await fetchWorkspaces();
+    await fetchProjects();
   } catch (error) {
     console.error('Failed to switch workspace', error);
   }
@@ -238,38 +266,37 @@ const switchWorkspace = async (workspaceId: string) => {
             {/* Left: Title */}
             <div className="flex flex-col gap-[5px]">
               <h1 className="text-[24px] font-bold text-[#040110] font-['Inter']">
-                {sortedProjects.length} Projects
+                {projects.length} Projects
               </h1>
               <p className="text-[14px] text-[#040110] opacity-60 font-normal">
                 Ensure timely completion with organized task tracking.
               </p>
             </div>
 
-            {/* Right: Workspace Selector (visible only to admin) */}
-            {user?.role === 'admin' && (
-              <div className="flex items-center gap-[10px]">
-                <WorkspaceSelector
-                  workspaces={workspaces}
-                  currentWorkspace={currentWorkspace}
-                  onSwitchWorkspace={handleWorkspaceChange}
-                  onCreateWorkspaceClick={handleCreateWorkspace}
-                />
-                {/* Workspace Settings Button */}
-                {user?.role === 'admin' && currentWorkspace && (
-                  <button
-                    type="button"
-                    aria-label="Workspace settings"
-                    aria-haspopup="dialog"
-                    onClick={() => setShowWorkspaceSettings(true)}
-                    className="inline-flex items-center justify-center w-[44px] h-[44px] rounded-[10px] border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3a5afe]"
-                    title="Workspace settings"
-                  >
-                    {/* svg: purely visual settings icon */}
-                    <SettingsIcon className="w-[20px] h-[20px] text-[#717182]" aria-hidden="true" />
-                  </button>
-                )}
-              </div>
-            )}
+            {/* Right: Workspace Selector (always visible); Create option gated by admin */}
+            <div className="flex items-center gap-[10px]">
+              <WorkspaceSelector
+                workspaces={workspaces}
+                currentWorkspace={currentWorkspace}
+                onSwitchWorkspace={handleWorkspaceChange}
+                onCreateWorkspaceClick={handleCreateWorkspace}
+                canCreateWorkspace={user?.role === 'admin'}
+              />
+              {/* Workspace Settings Button (admin only) */}
+              {user?.role === 'admin' && currentWorkspace && (
+                <button
+                  type="button"
+                  aria-label="Workspace settings"
+                  aria-haspopup="dialog"
+                  onClick={() => setShowWorkspaceSettings(true)}
+                  className="inline-flex items-center justify-center w-[44px] h-[44px] rounded-[10px] border border-gray-200 bg-white hover:bg-gray-50 active:bg-gray-100 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-[#3a5afe]"
+                  title="Workspace settings"
+                >
+                  {/* svg: purely visual settings icon */}
+                  <SettingsIcon className="w-[20px] h-[20px] text-[#717182]" aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Tabs */}
@@ -358,6 +385,7 @@ const switchWorkspace = async (workspaceId: string) => {
               }}
               onStatusChange={handleStatusChange}
               onDelete={handleDelete}
+              onUpdated={fetchProjects}
             />
           ))}
         </div>

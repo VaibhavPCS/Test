@@ -7,6 +7,40 @@ import { createNotification } from './notification-controller.js';
 import path from 'path';
 import fs from 'fs';
 
+// Helper: determine if a user can view a given task
+const canViewTask = async (userId, task) => {
+    try {
+        if (!task) return false;
+        const user = await User.findById(userId);
+        if (!user) return false;
+
+        // Global roles can view
+        if (["admin", "super_admin"].includes(user.role)) {
+            return true;
+        }
+
+        // Assignee or creator can view
+        if ((task.assignee && task.assignee.toString() === userId) ||
+            (task.creator && task.creator.toString() === userId)) {
+            return true;
+        }
+
+        // Project head or project member can view
+        const project = await Project.findById(task.project)
+            .populate('projectHead')
+            .populate('members.userId');
+
+        if (!project) return false;
+
+        const isProjectHead = project.projectHead && project.projectHead._id.toString() === userId;
+        const isMember = (project.members || []).some(m => m.userId && m.userId._id.toString() === userId);
+
+        return isProjectHead || isMember;
+    } catch (e) {
+        return false;
+    }
+};
+
 const createComment = async (req, res) => {
     try {
         const { content, taskId, parentCommentId } = req.body;
@@ -26,43 +60,21 @@ const createComment = async (req, res) => {
             return res.status(404).json({ message: 'Task not found' });
         }
         
-        // Permission check
+        // Permission: anyone who can view the task can comment
+        const canView = await canViewTask(userId, task);
+        if (!canView) {
+            return res.status(403).json({ message: "You don't have permission to comment on this task" });
+        }
+
+        // If replying, validate parent comment exists and belongs to same task
         const isReply = !!parentCommentId;
-        
         if (isReply) {
-            // For replies, check if user can reply
-            const canUserReply = await canReply(userId, taskId);
-            if (!canUserReply) {
-                return res.status(403).json({ 
-                    message: 'Only task assignee, leads, admins, and super admins can reply to comments' 
-                });
-            }
-            
-            // Check if parent comment exists
             const parentComment = await Comment.findById(parentCommentId);
             if (!parentComment) {
                 return res.status(404).json({ message: 'Parent comment not found' });
             }
-        } else {
-            // For first comment, check if user is assignee
-            const existingComments = await Comment.find({ task: taskId, parentComment: null });
-            
-            if (existingComments.length === 0) {
-                // First comment - only assignee can post
-                const canUserPostFirst = await canPostFirstComment(userId, taskId);
-                if (!canUserPostFirst) {
-                    return res.status(403).json({ 
-                        message: 'Only the task assignee can post the first comment' 
-                    });
-                }
-            } else {
-                // Subsequent top-level comments - same as reply permissions
-                const canUserReply = await canReply(userId, taskId);
-                if (!canUserReply) {
-                    return res.status(403).json({ 
-                        message: 'Only task assignee, leads, admins, and super admins can comment' 
-                    });
-                }
+            if (parentComment.task.toString() !== taskId.toString()) {
+                return res.status(400).json({ message: 'Parent comment does not belong to this task' });
             }
         }
         
@@ -121,8 +133,8 @@ const createComment = async (req, res) => {
                 notifyUsers.add(task.assignee.toString());
             }
             
-            if (task.createdBy && task.createdBy.toString() !== userId.toString()) {
-                notifyUsers.add(task.createdBy.toString());
+            if (task.creator && task.creator.toString() !== userId.toString()) {
+                notifyUsers.add(task.creator.toString());
             }
             
             for (const recipientId of notifyUsers) {
@@ -164,6 +176,16 @@ const getTaskComments = async (req, res) => {
         
         if (!taskId) {
             return res.status(400).json({ message: 'Task ID is required' });
+        }
+        // Ensure user can view task
+        const userId = req.user.id;
+        const task = await Task.findById(taskId);
+        if (!task) {
+            return res.status(404).json({ message: 'Task not found' });
+        }
+        const canView = await canViewTask(userId, task);
+        if (!canView) {
+            return res.status(403).json({ message: "You don't have permission to view comments for this task" });
         }
         
         // Get top-level comments only
@@ -221,6 +243,16 @@ const updateComment = async (req, res) => {
         if (comment.author.toString() !== userId.toString()) {
             return res.status(403).json({ message: 'You can only edit your own comments' });
         }
+
+        // Ensure user can view the task associated with the comment
+        const task = await Task.findById(comment.task);
+        if (!task) {
+            return res.status(404).json({ message: 'Task not found' });
+        }
+        const canView = await canViewTask(userId, task);
+        if (!canView) {
+            return res.status(403).json({ message: "You don't have permission to edit comments on this task" });
+        }
         
         comment.content = content.trim();
         comment.isEdited = true;
@@ -255,6 +287,16 @@ const deleteComment = async (req, res) => {
         if (comment.author.toString() !== userId.toString()) {
             return res.status(403).json({ message: 'You can only delete your own comments' });
         }
+
+        // Ensure user can view the task associated with the comment
+        const task = await Task.findById(comment.task);
+        if (!task) {
+            return res.status(404).json({ message: 'Task not found' });
+        }
+        const canView = await canViewTask(userId, task);
+        if (!canView) {
+            return res.status(403).json({ message: "You don't have permission to delete comments on this task" });
+        }
         
         // Clean up attached files
         if (comment.attachments && comment.attachments.length > 0) {
@@ -278,40 +320,7 @@ const deleteComment = async (req, res) => {
     }
 };
 
-const canPostFirstComment = async (userId, taskId) => {
-    const task = await Task.findById(taskId).populate('assignee');
-    return task && task.assignee && task.assignee._id.toString() === userId.toString();
-};
-
-const canReply = async (userId, taskId) => {
-    const user = await User.findById(userId);
-    const task = await Task.findById(taskId).populate('assignee');
-    
-    if (!user || !task) return false;
-    
-    // Check if user is assignee
-    if (task.assignee && task.assignee._id.toString() === userId.toString()) {
-        return true;
-    }
-    
-    // Check global roles
-    const allowedGlobalRoles = ['super_admin', 'admin'];
-    if (allowedGlobalRoles.includes(user.role)) {
-        return true;
-    }
-    
-    // Check workspace role (lead)
-    if (user.workspaces && user.workspaces.length > 0) {
-        const workspace = user.workspaces.find(ws => 
-            ws.workspace.toString() === task.workspace.toString()
-        );
-        if (workspace && workspace.role === 'lead') {
-            return true;
-        }
-    }
-    
-    return false;
-};
+// Removed role-based commenting helpers in favor of task visibility checks
 
 
 export {
@@ -328,7 +337,21 @@ export const getCommentReplies = async (req, res) => {
         if (!commentId) {
             return res.status(400).json({ message: 'Comment ID is required' });
         }
-        
+        // Ensure user can view the task associated with the parent comment
+        const userId = req.user.id;
+        const parentComment = await Comment.findById(commentId);
+        if (!parentComment) {
+            return res.status(404).json({ message: 'Comment not found' });
+        }
+        const task = await Task.findById(parentComment.task);
+        if (!task) {
+            return res.status(404).json({ message: 'Task not found' });
+        }
+        const canView = await canViewTask(userId, task);
+        if (!canView) {
+            return res.status(403).json({ message: "You don't have permission to view replies for this task" });
+        }
+
         const replies = await Comment.find({
             parentComment: commentId,
             isActive: true

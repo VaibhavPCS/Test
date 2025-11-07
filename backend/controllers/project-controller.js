@@ -1,6 +1,7 @@
 import Project from '../models/project.js';
 import User from '../models/user.js';
 import Workspace from '../models/workspace.js';
+import { createNotification } from './notification-controller.js';
 
 // ✅ UPDATED: Create project with projectHead and members
 const createProject = async (req, res) => {
@@ -280,6 +281,24 @@ const addMemberToProject = async (req, res) => {
       .populate('workspace', 'name')
       .populate('projectHead', 'name email')
       .populate('members.userId', 'name email');
+
+    // Send notification email to the added member
+    try {
+      await createNotification({
+        recipient: memberToAdd._id,
+        sender: userId,
+        type: 'member_joined',
+        title: 'Added to Project',
+        message: `You've been added to the project "${updatedProject.title}"`,
+        data: {
+          projectId: updatedProject._id,
+          workspaceId: updatedProject.workspace?._id || updatedProject.workspace
+        }
+      });
+    } catch (notifError) {
+      console.error('Notification error (member added to project):', notifError);
+      // Do not fail the request if notification fails
+    }
 
     res.status(200).json({
       message: "Member added to project successfully",
@@ -602,13 +621,10 @@ const uploadAttachments = async (req, res) => {
       return res.status(404).json({ message: "Project not found" });
     }
 
-    // Check permission - only admin/super_admin or project members can upload
+    // Check permission - only admin/super_admin or project lead can upload
     const user = await User.findById(userId);
     const canUpload = ['admin', 'super_admin'].includes(user.role) ||
-                     project.creator.toString() === userId ||
-                     project.categories.some(cat =>
-                       cat.members.some(member => member.userId.toString() === userId)
-                     );
+                      (project.projectHead && project.projectHead.toString() === userId);
 
     if (!canUpload) {
       return res.status(403).json({ message: "You don't have permission to upload attachments" });
@@ -650,7 +666,8 @@ const uploadAttachments = async (req, res) => {
     const updatedProject = await Project.findById(projectId)
       .populate('creator', 'name email')
       .populate('workspace', 'name')
-      .populate('categories.members.userId', 'name email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     res.status(200).json({
       message: `${attachments.length} attachment(s) uploaded successfully`,
@@ -698,7 +715,8 @@ const deleteAttachment = async (req, res) => {
     const updatedProject = await Project.findById(projectId)
       .populate('creator', 'name email')
       .populate('workspace', 'name')
-      .populate('categories.members.userId', 'name email');
+      .populate('projectHead', 'name email')
+      .populate('members.userId', 'name email');
 
     res.status(200).json({
       message: "Attachment deleted successfully",

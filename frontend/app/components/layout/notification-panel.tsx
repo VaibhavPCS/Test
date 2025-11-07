@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { fetchData, patchData } from '@/lib/fetch-util';
+import { useNavigate } from 'react-router';
+import { fetchData, patchData, postData } from '@/lib/fetch-util';
 import { Button } from '@/components/ui/button';
 import { Bell, X } from 'lucide-react';
 import { useBadges } from '../../provider/badge-context';
@@ -19,6 +20,7 @@ interface Notification {
     workspaceId?: string;
     projectId?: string;
     taskId?: string;
+    meetingId?: string;
     inviteId?: string;
   };
   createdAt: string;
@@ -36,6 +38,7 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
   onClose,
   anchorEl,
 }) => {
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const { refreshBadgeCounts } = useBadges();
@@ -56,6 +59,50 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
       setNotifications([]);
     } finally {
       setLoadingNotifications(false);
+    }
+  };
+
+  // Navigate to relevant page for a notification and mark as read
+  const handleNotificationClick = async (notification: Notification) => {
+    try {
+      if (!notification.isRead) {
+        await markAsRead(notification._id);
+      }
+
+      // Close the panel
+      onClose();
+
+      const { data } = notification;
+      // Persist and switch workspace on backend if provided
+      if (data.workspaceId) {
+        try {
+          localStorage.setItem('currentWorkspaceId', data.workspaceId);
+        } catch {}
+        try {
+          await postData('/workspace/switch', { workspaceId: data.workspaceId });
+        } catch (err) {
+          console.error('Failed to switch workspace from notification:', err);
+        }
+      }
+
+      // Decide the most specific target route first
+      let targetPath = '/dashboard';
+      if (data.taskId) {
+        targetPath = `/task/${data.taskId}`;
+      } else if (data.projectId) {
+        targetPath = `/project/${data.projectId}`;
+      } else if (data.workspaceId) {
+        targetPath = `/workspace`;
+      } else if (data.meetingId) {
+        targetPath = `/meetings`;
+      } else if (data.inviteId) {
+        // Workspace invite or similar — bring user to workspace area
+        targetPath = `/workspace`;
+      }
+
+      navigate(targetPath);
+    } catch (err) {
+      console.error('Notification navigation error:', err);
     }
   };
 
@@ -196,7 +243,7 @@ const NotificationPanel: React.FC<NotificationPanelProps> = ({
                       ? 'bg-blue-50 border-l-4 border-l-blue-500 hover:bg-blue-100'
                       : 'hover:bg-gray-50'
                   }`}
-                  onClick={() => !notification.isRead && markAsRead(notification._id)}
+                  onClick={() => handleNotificationClick(notification)}
                 >
                   <div className="flex items-start space-x-3">
                     <div className="text-lg flex-shrink-0">

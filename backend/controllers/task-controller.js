@@ -80,7 +80,21 @@ const createTask = async (req, res) => {
     const populatedTask = await Task.findById(task._id)
       .populate('assignee', 'name email')
       .populate('creator', 'name email')
-      .populate('project', 'title');
+      .populate('completedBy', 'name email')
+      .populate('approvedBy', 'name email')
+      .populate({
+        path: 'project',
+        select: 'title projectHead',
+        populate: {
+          path: 'projectHead',
+          select: '_id name email'
+        }
+      });
+
+    // ✅ NEW: Update project task count
+    await Project.findByIdAndUpdate(projectId, {
+      $inc: { totalTasks: 1 }
+    });
 
     // Send notification only if assignee is different from creator
     if (assigneeId && assigneeId !== userId) {
@@ -143,11 +157,19 @@ const updateTaskStatus = async (req, res) => {
 
     // ✅ NEW: When marking as done, trigger approval workflow
     const updates = { status };
+    const previousStatus = task.status;
 
     if (status === 'done') {
       updates.completedAt = new Date();
       updates.completedBy = userId;
       updates.approvalStatus = 'pending-approval';
+
+      // ✅ NEW: Increment completed tasks count if changing from non-done to done
+      if (previousStatus !== 'done') {
+        await Project.findByIdAndUpdate(task.project._id, {
+          $inc: { completedTasks: 1 }
+        });
+      }
 
       // ✅ Send notification to project head for approval
       const project = await Project.findById(task.project._id);
@@ -168,11 +190,18 @@ const updateTaskStatus = async (req, res) => {
           console.error('Notification error:', notifError);
         }
       }
-    } else if (status === 'in-progress') {
-      // Reset approval status if task is put back to in-progress
+    } else if (status === 'in-progress' || status === 'to-do') {
+      // Reset approval status if task is put back to in-progress or to-do
       updates.approvalStatus = 'not-required';
       updates.completedBy = null;
       updates.completedAt = null;
+
+      // ✅ NEW: Decrement completed tasks count if changing from done to non-done
+      if (previousStatus === 'done') {
+        await Project.findByIdAndUpdate(task.project._id, {
+          $inc: { completedTasks: -1 }
+        });
+      }
     }
 
     const updatedTask = await Task.findByIdAndUpdate(
@@ -183,7 +212,14 @@ const updateTaskStatus = async (req, res) => {
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
     .populate('completedBy', 'name email')
-    .populate('project', 'title');
+    .populate({
+      path: 'project',
+      select: 'title projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id name email'
+      }
+    });
 
     // Send notification if status changed by someone else
     if (task.assignee && userId !== task.assignee.toString()) {
@@ -267,7 +303,16 @@ const updateHandoverNotes = async (req, res) => {
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
-    .populate('project', 'title');
+    .populate('completedBy', 'name email')
+    .populate('approvedBy', 'name email')
+    .populate({
+      path: 'project',
+      select: 'title projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id name email'
+      }
+    });
 
     console.log('Handover notes updated successfully');
 
@@ -310,9 +355,16 @@ const getProjectTasks = async (req, res) => {
       isActive: true
     };
 
-    // ✅ Regular members don't see approved tasks
+    // ✅ UPDATED: Regular members see approved tasks only if they're the assignee
+    // Project heads and admins see all tasks including approved ones
     if (!isProjectHead && !isAdmin) {
-      query.approvalStatus = { $ne: 'approved' };
+      // Show tasks that are either:
+      // 1. Not approved, OR
+      // 2. Approved but assigned to the current user (so they can view their completed work)
+      query.$or = [
+        { approvalStatus: { $ne: 'approved' } },
+        { approvalStatus: 'approved', assignee: userId }
+      ];
     }
 
     const tasks = await Task.find(query)
@@ -320,6 +372,14 @@ const getProjectTasks = async (req, res) => {
       .populate('creator', 'name email')
       .populate('completedBy', 'name email')
       .populate('approvedBy', 'name email')
+      .populate({
+        path: 'project',
+        select: 'title projectHead',
+        populate: {
+          path: 'projectHead',
+          select: '_id name email'
+        }
+      })
       .sort({ createdAt: -1 });
 
     res.status(200).json({ tasks });
@@ -336,13 +396,23 @@ const getUserProjectTasks = async (req, res) => {
     const { projectId } = req.params;
     const userId = req.userId;
 
-    const tasks = await Task.find({ 
+    const tasks = await Task.find({
       project: projectId,
       assignee: userId,
-      isActive: true 
+      isActive: true
     })
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
+    .populate('completedBy', 'name email')
+    .populate('approvedBy', 'name email')
+    .populate({
+      path: 'project',
+      select: 'title projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id name email'
+      }
+    })
     .sort({ createdAt: -1 });
 
     res.status(200).json({ tasks });
@@ -365,11 +435,13 @@ const getUserProjectTasks = async (req, res) => {
       return res.status(404).json({ message: "Task not found" });
     }
 
-    // Only assignee or creator can update task (or admin/super_admin)
+    // Allow assignee, creator, admin/super_admin, or project head to update
     const currentUser = await User.findById(userId);
+    const isProjectHead = task.project && task.project.projectHead && task.project.projectHead.toString() === userId;
     const canUpdate = (task.assignee && task.assignee.toString() === userId) || 
                      task.creator.toString() === userId ||
-                     ['admin', 'super_admin'].includes(currentUser.role);
+                     ['admin', 'super_admin'].includes(currentUser.role) ||
+                     isProjectHead;
 
     if (!canUpdate) {
       return res.status(403).json({ message: "You can only update your own tasks" });
@@ -438,12 +510,22 @@ const getUserProjectTasks = async (req, res) => {
     }
 
     const updatedTask = await Task.findByIdAndUpdate(
-      taskId, 
-      updates, 
+      taskId,
+      updates,
       { new: true }
     )
     .populate('assignee', 'name email')
-    .populate('creator', 'name email');
+    .populate('creator', 'name email')
+    .populate('completedBy', 'name email')
+    .populate('approvedBy', 'name email')
+    .populate({
+      path: 'project',
+      select: 'title projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id name email'
+      }
+    });
 
     res.status(200).json({
       message: "Task updated successfully",
@@ -518,7 +600,14 @@ const getTaskById = async (req, res) => {
       .populate('creator', 'name email')
       .populate('completedBy', 'name email')
       .populate('approvedBy', 'name email')
-      .populate('project', 'title');
+      .populate({
+        path: 'project',
+        select: 'title projectHead',
+        populate: {
+          path: 'projectHead',
+          select: '_id name email'
+        }
+      });
 
     if (!task) {
       return res.status(404).json({ message: "Task not found" });
@@ -585,6 +674,13 @@ const deleteTask = async (req, res) => {
 
     // Soft delete - mark as inactive instead of hard delete
     await Task.findByIdAndUpdate(taskId, { isActive: false });
+
+    // ✅ NEW: Update project task counts
+    const updateData = { $inc: { totalTasks: -1 } };
+    if (task.status === 'done') {
+      updateData.$inc.completedTasks = -1;
+    }
+    await Project.findByIdAndUpdate(task.project, updateData);
 
     // Send notification to assignee if deleted by someone else
     if (userId !== task.assignee.toString()) {
@@ -664,7 +760,14 @@ const approveTask = async (req, res) => {
     .populate('creator', 'name email')
     .populate('completedBy', 'name email')
     .populate('approvedBy', 'name email')
-    .populate('project', 'title');
+    .populate({
+      path: 'project',
+      select: 'title projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id name email'
+      }
+    });
 
     // Send notification to task assignee
     if (task.assignee) {
@@ -696,14 +799,14 @@ const approveTask = async (req, res) => {
   }
 };
 
-// ✅ NEW: Reject task (only project head or admin)
+// ✅ ENHANCED: Reject task with new dates (only project head or admin)
 const rejectTask = async (req, res) => {
   try {
     const { taskId } = req.params;
-    const { reason } = req.body;
+    const { reason, newStartDate, newDueDate, reassigneeId } = req.body;
     const userId = req.userId;
 
-    console.log('Rejecting task:', { taskId, userId, reason });
+    console.log('Rejecting task:', { taskId, userId, reason, newStartDate, newDueDate, reassigneeId });
 
     const task = await Task.findById(taskId).populate('project');
     if (!task) {
@@ -730,7 +833,46 @@ const rejectTask = async (req, res) => {
       return res.status(403).json({ message: "Only project head or admin can reject tasks" });
     }
 
-    // Update task with rejection
+    // ✅ NEW: Validate new dates are provided when rejecting
+    if (!newStartDate || !newDueDate) {
+      return res.status(400).json({ message: "New start date and due date are required when rejecting a task" });
+    }
+
+    const start = new Date(newStartDate);
+    const end = new Date(newDueDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    if (start > end) {
+      return res.status(400).json({ message: "Start date cannot be after due date" });
+    }
+
+    // ✅ NEW: Validate task dates don't exceed project end date
+    if (project.endDate && end > new Date(project.endDate)) {
+      return res.status(400).json({
+        message: `Task due date cannot exceed project end date (${new Date(project.endDate).toLocaleDateString()})`
+      });
+    }
+
+    // ✅ NEW: Compute new duration
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const durationDays = Math.max(1, Math.ceil((end - start) / msPerDay) + 1);
+
+    // ✅ NEW: Handle reassignment if provided
+    const finalAssignee = reassigneeId || task.assignee;
+    if (reassigneeId) {
+      // Validate reassignee is in project
+      const assigneeInProject = project.members.some(m => m.userId._id.toString() === reassigneeId) ||
+                                project.projectHead._id.toString() === reassigneeId;
+
+      if (!assigneeInProject && !isAdmin) {
+        return res.status(400).json({ message: "Assignee must be a member of this project" });
+      }
+    }
+
+    // Update task with rejection and new dates
     const updatedTask = await Task.findByIdAndUpdate(
       taskId,
       {
@@ -740,24 +882,36 @@ const rejectTask = async (req, res) => {
         approvedAt: new Date(),
         rejectionReason: reason || 'No reason provided',
         completedAt: null,
-        completedBy: null
+        completedBy: null,
+        startDate: start,
+        dueDate: end,
+        durationDays,
+        assignee: finalAssignee
       },
       { new: true }
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
+    .populate('completedBy', 'name email')
     .populate('approvedBy', 'name email')
-    .populate('project', 'title');
+    .populate({
+      path: 'project',
+      select: 'title projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id name email'
+      }
+    });
 
     // Send notification to task assignee
-    if (task.assignee) {
+    if (updatedTask.assignee) {
       try {
         await createNotification({
-          recipient: task.assignee,
+          recipient: updatedTask.assignee._id,
           sender: userId,
           type: 'task_rejected',
           title: 'Task Rejected',
-          message: `Your task "${task.title}" has been rejected. Reason: ${reason || 'No reason provided'}`,
+          message: `Your task "${task.title}" has been rejected. Reason: ${reason || 'No reason provided'}. New deadline: ${end.toLocaleDateString()}`,
           data: {
             taskId: taskId,
             projectId: task.project._id
@@ -769,12 +923,146 @@ const rejectTask = async (req, res) => {
     }
 
     res.status(200).json({
-      message: "Task rejected successfully",
+      message: "Task rejected successfully with new dates",
       task: updatedTask
     });
 
   } catch (error) {
     console.error('Reject task error:', error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ NEW: Reassign approved task (only project head or admin)
+const reassignApprovedTask = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const { assigneeId, startDate, dueDate } = req.body;
+    const userId = req.userId;
+
+    console.log('Reassigning approved task:', { taskId, userId, assigneeId, startDate, dueDate });
+
+    const task = await Task.findById(taskId).populate('project');
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    // Check if task is approved
+    if (task.approvalStatus !== 'approved') {
+      return res.status(400).json({ message: "Only approved tasks can be reassigned" });
+    }
+
+    // Get project details
+    const project = await Project.findById(task.project._id);
+    if (!project) {
+      return res.status(404).json({ message: "Project not found" });
+    }
+
+    // Check permissions - only project head or admin can reassign
+    const currentUser = await User.findById(userId);
+    const isProjectHead = project.projectHead.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can reassign approved tasks" });
+    }
+
+    // Validate new assignee
+    if (!assigneeId) {
+      return res.status(400).json({ message: "Assignee is required" });
+    }
+
+    const assigneeInProject = project.members.some(m => m.userId._id.toString() === assigneeId) ||
+                              project.projectHead._id.toString() === assigneeId;
+
+    if (!assigneeInProject && !isAdmin) {
+      return res.status(400).json({ message: "Assignee must be a member of this project" });
+    }
+
+    // Validate dates
+    if (!startDate || !dueDate) {
+      return res.status(400).json({ message: "Start date and due date are required" });
+    }
+
+    const start = new Date(startDate);
+    const end = new Date(dueDate);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+      return res.status(400).json({ message: "Invalid date format" });
+    }
+
+    if (start > end) {
+      return res.status(400).json({ message: "Start date cannot be after due date" });
+    }
+
+    // ✅ NEW: Validate task dates don't exceed project end date
+    if (project.endDate && end > new Date(project.endDate)) {
+      return res.status(400).json({
+        message: `Task due date cannot exceed project end date (${new Date(project.endDate).toLocaleDateString()})`
+      });
+    }
+
+    // Compute duration
+    const msPerDay = 1000 * 60 * 60 * 24;
+    const durationDays = Math.max(1, Math.ceil((end - start) / msPerDay) + 1);
+
+    // Update task - reset to to-do status with new assignee and dates
+    const updatedTask = await Task.findByIdAndUpdate(
+      taskId,
+      {
+        assignee: assigneeId,
+        startDate: start,
+        dueDate: end,
+        durationDays,
+        status: 'to-do',
+        approvalStatus: 'not-required',
+        completedAt: null,
+        completedBy: null,
+        approvedBy: null,
+        approvedAt: null,
+        rejectionReason: null
+      },
+      { new: true }
+    )
+    .populate('assignee', 'name email')
+    .populate('creator', 'name email')
+    .populate('completedBy', 'name email')
+    .populate('approvedBy', 'name email')
+    .populate({
+      path: 'project',
+      select: 'title projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id name email'
+      }
+    });
+
+    // Send notification to new assignee
+    if (assigneeId !== userId) {
+      try {
+        await createNotification({
+          recipient: assigneeId,
+          sender: userId,
+          type: 'task_assigned',
+          title: 'Task Reassigned',
+          message: `You've been assigned the task: "${task.title}"`,
+          data: {
+            taskId: taskId,
+            projectId: task.project._id
+          }
+        });
+      } catch (notifError) {
+        console.error('Notification error:', notifError);
+      }
+    }
+
+    res.status(200).json({
+      message: "Task reassigned successfully",
+      task: updatedTask
+    });
+
+  } catch (error) {
+    console.error('Reassign task error:', error);
     res.status(500).json({ message: "Internal Server Error" });
   }
 };
@@ -790,5 +1078,6 @@ export {
   getAssignableMembers,
   deleteTask,
   approveTask,  // ✅ NEW: Add approve export
-  rejectTask    // ✅ NEW: Add reject export
+  rejectTask,   // ✅ ENHANCED: Add reject export
+  reassignApprovedTask  // ✅ NEW: Add reassign export
 };
