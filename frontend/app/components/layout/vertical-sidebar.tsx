@@ -51,6 +51,7 @@ const navItems: NavItem[] = [
     subItems: [
       { name: 'Role Management', href: '/administration/role-management' },
       { name: 'User Management', href: '/administration/user-management' },
+      { name: 'Analytics', href: '/administration/project-management' },
     ],
   },
 ];

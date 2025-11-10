@@ -110,20 +110,18 @@ const fetchWorkspaces = useCallback(async () => {
       const response = await fetchData('/project');
       const list: Project[] = response.projects || [];
       const currentUserId = (user as any)?.id || (user as any)?._id;
-      const isAdmin = ['admin', 'super_admin', 'super-admin'].includes((user as any)?.role);
-      const filtered = isAdmin
-        ? list
-        : list.filter((p: any) => {
-            const isHead = p?.projectHead?._id === currentUserId;
-            const inMembers = Array.isArray(p?.members)
-              ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
-              : Array.isArray(p?.categories)
-              ? p.categories.some(
-                  (c: any) => Array.isArray(c.members) && c.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
-                )
-              : false;
-            return isHead || inMembers;
-          });
+      const filtered = list.filter((p: any) => {
+        const isCreator = p?.creator?._id === currentUserId;
+        const isHead = p?.projectHead?._id === currentUserId;
+        const inMembers = Array.isArray(p?.members)
+          ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+          : Array.isArray(p?.categories)
+          ? p.categories.some(
+              (c: any) => Array.isArray(c.members) && c.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+            )
+          : false;
+        return isCreator || isHead || inMembers;
+      });
       setProjects(filtered);
     } catch (error) {
       console.error('Failed to load projects', error);

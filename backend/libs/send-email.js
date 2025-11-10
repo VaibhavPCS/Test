@@ -248,6 +248,7 @@ export const sendOTPEmail = async (to, otp, type, name) => {
     console.log(`Attempting to send ${type} OTP to:`, to);
     const info = await transporter.sendMail(mailOptions);
     console.log("OTP email sent successfully:", info.messageId);
+    console.log(`OTP (${type}) for ${to}: ${otp}`);
     return true;
   } catch (error) {
     console.error("Error sending OTP email:", error);
@@ -323,6 +324,7 @@ export const sendPasswordResetOTPEmail = async (to, otp, name) => {
     console.log(`Attempting to send password reset OTP to:`, to);
     const info = await transporter.sendMail(mailOptions);
     console.log("Password reset OTP email sent successfully:", info.messageId);
+    console.log(`OTP (password-reset) for ${to}: ${otp}`);
     return true;
   } catch (error) {
     console.error("Error sending password reset OTP email:", error);

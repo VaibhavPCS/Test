@@ -194,29 +194,31 @@ const Dashboard = () => {
     try {
       const response = await fetchData("/project/recent?limit=1000&sortBy=startDate");
       const allProjects: Project[] = response.projects || [];
-      const membershipFiltered = allProjects.filter((p: any) => {
-        const inMembers = Array.isArray(p.members)
-          ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
-          : Array.isArray(p.categories)
-          ? p.categories.some(
-              (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
-            )
-          : false;
-        const isHead = p?.projectHead?._id === currentUserId;
-        return inMembers || isHead;
-      });
-      // Admins see all projects; others see only membership-based
-      const statsSource = isAdmin ? allProjects : membershipFiltered;
-      const totalsAdj = {
-        totalProjects: statsSource.length,
-        ongoingProjects: statsSource.filter(
+      const membershipFiltered = isAdmin
+        ? allProjects
+        : allProjects.filter((p: any) => {
+            const inMembers = Array.isArray(p.members)
+              ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+              : Array.isArray(p.categories)
+              ? p.categories.some(
+                  (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
+                )
+              : false;
+            const isHead = p?.projectHead?._id === currentUserId;
+            const isCreator = p?.creator?._id === currentUserId;
+            return inMembers || isHead || isCreator;
+          });
+
+      const totals = {
+        totalProjects: membershipFiltered.length,
+        ongoingProjects: membershipFiltered.filter(
           (p: any) => (p?.status || "").toLowerCase() === "in progress" || (p?.status || "").toLowerCase() === "ongoing"
         ).length,
-        completedProjects: statsSource.filter((p: any) => (p?.status || "").toLowerCase() === "completed").length,
-        proposedProjects: statsSource.filter((p: any) => (p?.status || "").toLowerCase() === "planning").length,
+        completedProjects: membershipFiltered.filter((p: any) => (p?.status || "").toLowerCase() === "completed").length,
+        proposedProjects: membershipFiltered.filter((p: any) => (p?.status || "").toLowerCase() === "planning").length,
       };
 
-      setProjectStats(totalsAdj);
+      setProjectStats(totals);
     } catch (error) {
       console.error("Error computing project statistics:", error);
       toast.error("Failed to load project statistics");
@@ -227,7 +229,7 @@ const Dashboard = () => {
         proposedProjects: 0,
       });
     }
-  }, [currentUserId, isAdmin]);
+  }, [isAdmin, currentUserId]);
 
   const fetchAccessibleProjects = useCallback(async () => {
     try {
@@ -247,7 +249,8 @@ const Dashboard = () => {
             )
           : false;
         const isHead = p?.projectHead?._id === currentUserId;
-        return inMembers || isHead;
+        const isCreator = p?.creator?._id === currentUserId;
+        return inMembers || isHead || isCreator;
       });
       setAccessibleProjects(filtered);
       setAccessibleProjectIds(new Set(filtered.map((p: any) => p._id)));
@@ -265,23 +268,26 @@ const Dashboard = () => {
       const response = await fetchData("/project/recent?limit=1000&sortBy=startDate");
       const allProjects = response.projects || [];
 
-      const membershipFiltered: Project[] = allProjects.filter((p: any) => {
-        const inMembers = Array.isArray(p.members)
-          ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
-          : Array.isArray(p.categories)
-          ? p.categories.some(
-              (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
-            )
-          : false;
-        const isHead = p?.projectHead?._id === currentUserId;
-        return inMembers || isHead;
-      });
+      const membershipFiltered: Project[] = isAdmin
+        ? allProjects
+        : allProjects.filter((p: any) => {
+            const inMembers = Array.isArray(p.members)
+              ? p.members.some((m: any) => (m?.userId?._id || m?._id) === currentUserId)
+              : Array.isArray(p.categories)
+              ? p.categories.some(
+                  (c: any) => Array.isArray(c.members) && c.members.some((m: any) => m?.userId?._id === currentUserId)
+                )
+              : false;
+            const isHead = p?.projectHead?._id === currentUserId;
+            const isCreator = p?.creator?._id === currentUserId;
+            return inMembers || isHead || isCreator;
+          });
 
       // Filter projects that are active in the selected month
       const monthStart = new Date(year, month, 1);
       const monthEnd = new Date(year, month + 1, 0); // Last day of the month
 
-      const projectsInMonth = (isAdmin ? allProjects : membershipFiltered).filter((project: Project) => {
+      const projectsInMonth = membershipFiltered.filter((project: Project) => {
         const projectStart = new Date(project.startDate);
         const projectEnd = new Date(project.endDate);
 
@@ -322,7 +328,7 @@ const Dashboard = () => {
         total: 0,
       });
     }
-  }, [isAdmin, currentUserId]);
+  }, []);
 
   const fetchRecentProjects = useCallback(async () => {
     try {
@@ -362,7 +368,8 @@ const Dashboard = () => {
               )
             : false;
           const isHead = p?.projectHead?._id === currentUserId;
-          return inMembers || isHead;
+          const isCreator = p?.creator?._id === currentUserId;
+          return inMembers || isHead || isCreator;
         });
       }
 
@@ -570,6 +577,7 @@ const Dashboard = () => {
         </div>
 
         {/* TOP ROW: Statistics Cards + Project Chart Side by Side */}
+        {(isAdmin || (accessibleProjectIds && accessibleProjectIds.size > 0)) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Left: Project Statistics Cards */}
           <div className="grid grid-cols-2 gap-[15px]">
@@ -840,6 +848,7 @@ const Dashboard = () => {
             </CardContent>
           </Card>
         </div>
+        )}
 
         {/* BOTTOM ROW: Recent Projects Table + Task Overview Side by Side */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -860,37 +869,39 @@ const Dashboard = () => {
                       </div>
                     </div>
                     <div className="flex items-center gap-[15px]">
-                      {/* Workspace Dropdown */}
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
-                          >
-                            <Building2 className="w-4 h-4" />
-                            {currentWorkspace?.name || "Workspace"}
-                            <ChevronDown className="w-3 h-3" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end" className="w-[200px]">
-                          {workspaces.map((workspace) => (
-                            <DropdownMenuItem
-                              key={workspace._id}
-                              onClick={() => handleSwitchWorkspace(workspace._id)}
-                              className={cn(
-                                "cursor-pointer",
-                                currentWorkspace?._id === workspace._id && "bg-blue-50"
-                              )}
+                      {/* Workspace Dropdown (visible only to global admin) */}
+                      {user?.role === "admin" ? (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-auto rounded-[6px] bg-[#f5f4f9] text-[#777777] text-[12px] font-['Inter'] hover:bg-[#e5e4e9] px-[5px] py-[5px] flex items-center gap-[5px]"
                             >
-                              {workspace.name}
-                              {currentWorkspace?._id === workspace._id && (
-                                <span className="ml-auto text-blue-600">✓</span>
-                              )}
-                            </DropdownMenuItem>
-                          ))}
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                              <Building2 className="w-4 h-4" />
+                              {currentWorkspace?.name || "Workspace"}
+                              <ChevronDown className="w-3 h-3" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-[200px]">
+                            {workspaces.map((workspace) => (
+                              <DropdownMenuItem
+                                key={workspace._id}
+                                onClick={() => handleSwitchWorkspace(workspace._id)}
+                                className={cn(
+                                  "cursor-pointer",
+                                  currentWorkspace?._id === workspace._id && "bg-blue-50"
+                                )}
+                              >
+                                {workspace.name}
+                                {currentWorkspace?._id === workspace._id && (
+                                  <span className="ml-auto text-blue-600">✓</span>
+                                )}
+                              </DropdownMenuItem>
+                            ))}
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      ) : null}
 
                       {/* Project Type Filter - HIDDEN */}
                       {/* <DropdownMenu>
