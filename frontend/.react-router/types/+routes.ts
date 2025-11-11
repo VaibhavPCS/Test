@@ -65,6 +65,15 @@ type Pages = {
       "id": string;
     };
   };
+  "/analytics": {
+    params: {};
+  };
+  "/analytics/workspace": {
+    params: {};
+  };
+  "/analytics/leaderboard": {
+    params: {};
+  };
   "/*": {
     params: {
       "*": string;
@@ -75,7 +84,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/*";
+    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/analytics" | "/analytics/workspace" | "/analytics/leaderboard" | "/*";
   };
   "routes/root/redirect.tsx": {
     id: "routes/root/redirect";
@@ -111,7 +120,7 @@ type RouteFiles = {
   };
   "components/layout/dashboard-layout.tsx": {
     id: "components/layout/dashboard-layout";
-    page: "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id";
+    page: "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/analytics" | "/analytics/workspace" | "/analytics/leaderboard";
   };
   "routes/dashboard/dashboard.tsx": {
     id: "routes/dashboard/dashboard";
@@ -152,6 +161,22 @@ type RouteFiles = {
   "routes/task/task-detail.tsx": {
     id: "routes/task/task-detail";
     page: "/task/:id";
+  };
+  "routes/analytics/analytics.tsx": {
+    id: "routes/analytics/analytics";
+    page: "/analytics" | "/analytics/workspace" | "/analytics/leaderboard";
+  };
+  "routes/analytics/performance.tsx": {
+    id: "routes/analytics/performance";
+    page: "/analytics";
+  };
+  "routes/analytics/workspace.tsx": {
+    id: "routes/analytics/workspace";
+    page: "/analytics/workspace";
+  };
+  "routes/analytics/leaderboard.tsx": {
+    id: "routes/analytics/leaderboard";
+    page: "/analytics/leaderboard";
   };
   "routes/root/not-found.tsx": {
     id: "routes/root/not-found";
