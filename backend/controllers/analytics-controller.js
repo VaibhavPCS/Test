@@ -8,6 +8,8 @@ import WorkspaceSummary from "../models/workspace-summary.js";
 import ProjectLeaderboard from "../models/project-leaderboard.js";
 import mongoose from "mongoose";
 import { getTaskLifecycle as getTaskLifecycleService, canAccessTaskLifecycle } from "../services/lifecycle.service.js";
+import { getProjectDateChanges as getProjectDateChangesService, canAccessProjectHistory } from "../services/project-analytics.service.js";
+import EmployeePerformanceSnapshot from "../models/employee-performance-snapshot.js";
 
 const getProjectAnalytics = async (req, res) => {
   try {
@@ -772,7 +774,10 @@ export {
   getProjectLeaderboard,
   refreshAnalytics,
   getUserProductivityStats,
-  getTaskLifecycle
+  getTaskLifecycle,
+  getProjectDateChanges,
+  getEmployeePerformance,
+  getAllEmployees
 };
 
 async function getTaskLifecycle(req, res) {
@@ -805,6 +810,24 @@ async function getTaskLifecycle(req, res) {
     });
   } catch (error) {
     console.error('Get task lifecycle error:', error);
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+}
+async function getProjectDateChanges(req, res) {
+  try {
+    const { projectId } = req.params;
+    const userId = req.userId;
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({ message: 'Invalid project ID' });
+    }
+    const project = await Project.findById(projectId).populate('projectHead', 'name');
+    if (!project) return res.status(404).json({ message: 'Project not found' });
+    const allowed = await canAccessProjectHistory(userId, project);
+    if (!allowed) return res.status(403).json({ message: 'Access denied' });
+    const result = await getProjectDateChangesService(projectId);
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Get project date changes error:', error);
     return res.status(500).json({ message: 'Internal Server Error' });
   }
 }

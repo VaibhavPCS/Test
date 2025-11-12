@@ -1,12 +1,14 @@
 import express from 'express';
 import { authenticateToken } from '../libs/auth-middleware.js';
+import { adminOnly } from '../middleware/admin-only.js';
 import { 
   getProjectAnalytics,
   getWorkspaceIntelligence,
   getProjectLeaderboard,
   refreshAnalytics,
   getUserProductivityStats,
-  getTaskLifecycle
+  getTaskLifecycle,
+  getProjectDateChanges
 } from '../controllers/analytics-controller.js';
 
 const router = express.Router();
@@ -315,6 +317,9 @@ router.post('/refresh', refreshAnalytics);
  *         description: Internal Server Error
  */
 router.get('/user/:userId', getUserProductivityStats);
+router.get('/project/:projectId/date-changes', getProjectDateChanges);
+router.get('/employee/:userId/performance', adminOnly, getEmployeePerformance);
+router.get('/employees', adminOnly, getAllEmployees);
 
 // Task lifecycle endpoint
 router.get('/task/:taskId/lifecycle', getTaskLifecycle);
