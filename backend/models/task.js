@@ -111,6 +111,50 @@ const taskSchema = new Schema(
   }
 );
 
+taskSchema.add({
+  startedAt: { type: Date },
+  submittedForApprovalAt: { type: Date },
+  rejections: [{
+    rejectedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
+    rejectedAt: { type: Date, required: true },
+    reason: { type: String },
+    reassignedTo: { type: Schema.Types.ObjectId, ref: 'User' },
+    newDueDate: { type: Date }
+  }],
+  metrics: {
+    timesReassigned: { type: Number, default: 0 },
+    timesRejected: { type: Number, default: 0 },
+    totalWorkingTime: { type: Number, default: 0 },
+    approvalAttempts: { type: Number, default: 0 }
+  }
+});
+
+taskSchema.path('rejections').validate(function(rejections) {
+  if (!Array.isArray(rejections)) return true;
+  for (const r of rejections) {
+    if (!r.rejectedBy || !r.rejectedAt) {
+      return false;
+    }
+  }
+  return true;
+}, 'Each rejection must have rejectedBy and rejectedAt');
+
+taskSchema.path('metrics.timesReassigned').validate(function(val) {
+  return val === undefined || val >= 0;
+}, 'timesReassigned cannot be negative');
+
+taskSchema.path('metrics.timesRejected').validate(function(val) {
+  return val === undefined || val >= 0;
+}, 'timesRejected cannot be negative');
+
+taskSchema.path('metrics.totalWorkingTime').validate(function(val) {
+  return val === undefined || val >= 0;
+}, 'totalWorkingTime cannot be negative');
+
+taskSchema.path('metrics.approvalAttempts').validate(function(val) {
+  return val === undefined || val >= 0;
+}, 'approvalAttempts cannot be negative');
+
  
 
 taskSchema.pre("save", async function (next) {

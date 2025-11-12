@@ -182,6 +182,10 @@ const updateTaskStatus = async (req, res) => {
       updates.completedAt = new Date();
       updates.completedBy = userId;
       updates.approvalStatus = 'pending-approval';
+      if (!task.submittedForApprovalAt) {
+        updates.submittedForApprovalAt = new Date();
+      }
+      updates.$inc = { ...(updates.$inc || {}), 'metrics.approvalAttempts': 1 };
 
       // ✅ NEW: Increment completed tasks count if changing from non-done to done
       if (previousStatus !== 'done') {
@@ -214,6 +218,9 @@ const updateTaskStatus = async (req, res) => {
       updates.approvalStatus = 'not-required';
       updates.completedBy = null;
       updates.completedAt = null;
+      if (status === 'in-progress' && previousStatus !== 'in-progress' && !task.startedAt) {
+        updates.startedAt = new Date();
+      }
 
       // ✅ NEW: Decrement completed tasks count if changing from done to non-done
       if (previousStatus === 'done') {
@@ -526,6 +533,26 @@ const getUserProjectTasks = async (req, res) => {
     if (updates.startDate || updates.dueDate) {
       const msPerDay = 1000 * 60 * 60 * 24;
       updates.durationDays = Math.max(1, Math.ceil((nextDue - nextStart) / msPerDay) + 1);
+    }
+
+    if (updates.status === 'in-progress' && task.status !== 'in-progress') {
+      if (!task.startedAt) {
+        updates.startedAt = new Date();
+      }
+    }
+
+    if (updates.approvalStatus === 'pending-approval' && task.approvalStatus !== 'pending-approval') {
+      if (!task.submittedForApprovalAt) {
+        updates.submittedForApprovalAt = new Date();
+      }
+      updates.$inc = { ...(updates.$inc || {}), 'metrics.approvalAttempts': 1 };
+    }
+
+    if (Object.prototype.hasOwnProperty.call(updates, 'assignee')) {
+      const nextAssignee = updates.assignee;
+      if (task.assignee && nextAssignee && String(task.assignee) !== String(nextAssignee)) {
+        updates.$inc = { ...(updates.$inc || {}), 'metrics.timesReassigned': 1 };
+      }
     }
 
     const updatedTask = await Task.findByIdAndUpdate(
@@ -898,7 +925,7 @@ const rejectTask = async (req, res) => {
     const updatedTask = await Task.findByIdAndUpdate(
       taskId,
       {
-        status: 'in-progress', // ✅ Move back to in-progress
+        status: 'in-progress',
         approvalStatus: 'rejected',
         approvedBy: userId,
         approvedAt: new Date(),
@@ -908,7 +935,17 @@ const rejectTask = async (req, res) => {
         startDate: start,
         dueDate: end,
         durationDays,
-        assignee: finalAssignee
+        assignee: finalAssignee,
+        $push: {
+          rejections: {
+            rejectedBy: userId,
+            rejectedAt: new Date(),
+            reason: reason || task.rejectionReason || 'No reason provided',
+            reassignedTo: (finalAssignee && task.assignee && String(finalAssignee) !== String(task.assignee)) ? finalAssignee : null,
+            newDueDate: (task.dueDate && end && String(task.dueDate) !== String(end)) ? end : null
+          }
+        },
+        $inc: { 'metrics.timesRejected': 1 }
       },
       { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
@@ -1042,7 +1079,8 @@ const reassignApprovedTask = async (req, res) => {
         completedBy: null,
         approvedBy: null,
         approvedAt: null,
-        rejectionReason: null
+        rejectionReason: null,
+        $inc: { 'metrics.timesReassigned': 1 }
       },
       { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
