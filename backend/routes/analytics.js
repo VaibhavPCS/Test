@@ -4,7 +4,8 @@ import {
   getProjectAnalytics,
   getWorkspaceIntelligence,
   getProjectLeaderboard,
-  refreshAnalytics
+  refreshAnalytics,
+  getUserProductivityStats
 } from '../controllers/analytics-controller.js';
 
 const router = express.Router();
@@ -237,5 +238,81 @@ router.get('/leaderboard', getProjectLeaderboard);
  *         description: Admin access required.
  */
 router.post('/refresh', refreshAnalytics);
+
+/**
+ * @swagger
+ * /analytics/user/{userId}:
+ *   get:
+ *     summary: Get Personal Productivity Statistics
+ *     description: |
+ *       Fetches real-time productivity stats for a specific user, including:
+ *       - Count of open tasks (to-do and in-progress)
+ *       - List of tasks due in the next 7 days
+ *       - Count of tasks completed in the last 7 days
+ *       
+ *       **Authorization:** Users can only request their own data.
+ *       Data is calculated in real-time from the main application database.
+ *     tags: [Analytics]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: userId
+ *         required: true
+ *         description: The ID of the user (must match authenticated user)
+ *         schema:
+ *           type: string
+ *           example: "507f1f77bcf86cd799439011"
+ *     responses:
+ *       200:
+ *         description: User productivity statistics successfully retrieved
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 openTaskCount:
+ *                   type: integer
+ *                   description: Number of open tasks (to-do or in-progress)
+ *                   example: 12
+ *                 tasksDueNext7Days:
+ *                   type: array
+ *                   description: Tasks due within the next 7 days
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                         example: "507f1f77bcf86cd799439011"
+ *                       title:
+ *                         type: string
+ *                         example: "Complete user authentication feature"
+ *                       dueDate:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2025-11-15T10:00:00.000Z"
+ *                       priority:
+ *                         type: string
+ *                         enum: [low, medium, high, urgent]
+ *                         example: "high"
+ *                       status:
+ *                         type: string
+ *                         enum: [to-do, in-progress]
+ *                         example: "in-progress"
+ *                       projectTitle:
+ *                         type: string
+ *                         example: "Authentication Module"
+ *                 tasksCompletedLast7Days:
+ *                   type: integer
+ *                   description: Number of tasks completed in the last 7 days
+ *                   example: 8
+ *       401:
+ *         description: Unauthorized - Authentication required
+ *       403:
+ *         description: Forbidden - Users can only access their own data
+ *       500:
+ *         description: Internal Server Error
+ */
+router.get('/user/:userId', getUserProductivityStats);
 
 export default router;

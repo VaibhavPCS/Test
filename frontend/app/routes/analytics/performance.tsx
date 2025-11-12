@@ -1,19 +1,31 @@
+// frontend/app/routes/analytics/performance.tsx
+
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Loader2, RefreshCw, AlertCircle } from "lucide-react";
 import { useProjectAnalytics } from "@/features/analytics/hooks";
-import { useState } from "react";
-import { DateRangeFilter } from "@/features/analytics/components/DateRangeFilter";
 import { useSearchParams } from "react-router";
+import { DateRangeFilter } from "@/features/analytics/components/DateRangeFilter";
 import { VelocityChart } from "@/features/analytics/components/VelocityChart";
+import { useFilter } from '@/features/analytics/context/FilterContext';
 
 const Performance = () => {
   const [searchParams] = useSearchParams();
-  const [projectId] = useState("6912bd18e5e41fd8fdbc839d");
+  
+  // ✅ Get selected workspace and project (IDs and names) from FilterContext
+  const { 
+    selectedWorkspaceId, 
+    selectedProjectId,
+    selectedWorkspaceName,
+    selectedProjectName 
+  } = useFilter();
   
   // Get date range from URL params or use defaults
   const startDate = searchParams.get("startDate") || undefined;
   const endDate = searchParams.get("endDate") || undefined;
+
+  // ✅ Use selectedProjectId from FilterContext (falls back to hardcoded if not selected)
+  const projectId = selectedProjectId || "6912bd18e5e41fd8fdbc839d";
 
   const { 
     data, 
@@ -38,11 +50,20 @@ const Performance = () => {
       <div className="flex-1">
         <h2 className="text-xl font-semibold text-gray-900">Performance Metrics</h2>
         <p className="text-sm text-gray-600">
-          Project: <span className="font-medium">{data?.project?.title || 'Dev Test Alpha'}</span> 
+          Project: <span className="font-medium">{data?.project?.title || selectedProjectName || 'Loading...'}</span> 
           {data?.totalTasks !== undefined && (
             <span className="ml-2 text-gray-500">({data.totalTasks} tasks)</span>
           )}
         </p>
+        {/* ✅ Show selected workspace/project names instead of IDs */}
+        {selectedWorkspaceName && (
+          <p className="text-xs text-gray-500 mt-1">
+            Workspace: <span className="font-medium">{selectedWorkspaceName}</span>
+            {selectedProjectName && selectedProjectName !== 'All Projects' && (
+              <> | Project: <span className="font-medium">{selectedProjectName}</span></>
+            )}
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-2">
@@ -62,6 +83,24 @@ const Performance = () => {
       </div>
     </div>
   );
+
+  // ✅ Show message if no workspace/project selected
+  if (!selectedWorkspaceId && !selectedProjectId) {
+    return (
+      <div className="space-y-4">
+        {renderHeader()}
+        <div className="flex items-center justify-center h-64">
+          <div className="text-center">
+            <AlertCircle className="w-12 h-12 text-blue-500 mx-auto mb-4" />
+            <p className="text-gray-600 font-medium mb-2">No Workspace Selected</p>
+            <p className="text-gray-500 text-sm mb-4">
+              Please select a workspace and project from the filters above to view performance metrics.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -107,7 +146,7 @@ const Performance = () => {
               This project has no tasks in the selected date range.
             </p>
             <p className="text-gray-500 text-sm">
-              Try selecting a different date range above.
+              Try selecting a different date range or project above.
             </p>
           </div>
         </div>
@@ -119,11 +158,13 @@ const Performance = () => {
     <div className="space-y-4">
       {/* ✅ Header with Date Filter - Always visible */}
       {renderHeader()}
+      
       <VelocityChart 
         data={data.analytics.overall.velocity.timeSeries || []} 
         isLoading={isFetching}
       />
-       {/* Existing Metrics Grid */}
+      
+      {/* Existing Metrics Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {/* Overall Metrics Card */}
         <Card>

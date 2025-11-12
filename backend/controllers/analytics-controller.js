@@ -12,12 +12,12 @@ const getProjectAnalytics = async (req, res) => {
     const userId = req.userId;
     const { startDate, endDate } = req.query;
 
-    console.log("Analytics request:", {
-      projectId,
-      userId,
-      startDate,
-      endDate,
-    });
+    // console.log("Analytics request:", {
+    //   projectId,
+    //   userId,
+    //   startDate,
+    //   endDate,
+    // });
 
     // Get project with workspace populated
     const project = await Project.findById(projectId).populate("workspace");
@@ -83,7 +83,7 @@ const getProjectAnalytics = async (req, res) => {
       ...dateFilter,
     }).populate("assignee", "name email");
 
-    console.log(`Found ${tasks.length} tasks for project ${projectId}`);
+    // console.log(`Found ${tasks.length} tasks for project ${projectId}`);
 
     if (tasks.length === 0) {
       return res.status(200).json({
@@ -549,9 +549,142 @@ const refreshAnalytics = async (req, res) => {
   }
 };
 
+/**
+ * Get user personal productivity statistics
+ * Real-time calculation from main database
+ * Only includes tasks from active projects and non-archived workspaces
+ */
+const getUserProductivityStats = async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const authenticatedUserId = req.userId;
+
+    // Authorization: Users can only request their own data
+    if (userId !== authenticatedUserId.toString()) {
+      return res.status(403).json({ 
+        message: "Forbidden. You can only access your own productivity stats." 
+      });
+    }
+
+    // Calculate date ranges
+    const now = new Date();
+    
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
+    
+    const next7Days = new Date(startOfToday);
+    next7Days.setDate(next7Days.getDate() + 7);
+    next7Days.setHours(23, 59, 59, 999);
+    
+    const last7DaysStart = new Date(now);
+    last7DaysStart.setDate(last7DaysStart.getDate() - 7);
+    last7DaysStart.setHours(0, 0, 0, 0);
+
+    // ✅ STEP 1: Get all active projects in non-archived workspaces
+    const activeProjects = await Project.find({
+      isActive: true
+    })
+    .populate({
+      path: 'workspace',
+      match: { isArchived: false }, // Only non-archived workspaces
+      select: '_id name isArchived'
+    })
+    .select('_id workspace')
+    .lean();
+
+    // Filter out projects with null workspace (archived workspaces)
+    const accessibleProjectIds = activeProjects
+      .filter(p => p.workspace !== null)
+      .map(p => p._id);
+
+    console.log('Accessible project IDs:', accessibleProjectIds.length);
+
+    // If no accessible projects, return zeros
+    if (accessibleProjectIds.length === 0) {
+      return res.status(200).json({
+        openTaskCount: 0,
+        tasksDueNext7Days: [],
+        tasksCompletedLast7Days: 0
+      });
+    }
+
+    // ✅ STEP 2: Count open tasks from accessible projects only
+    const openTaskCount = await Task.countDocuments({
+      assignee: userId,
+      status: { $in: ['to-do', 'in-progress'] },
+      isActive: true,
+      project: { $in: accessibleProjectIds } // ✅ Only from accessible projects
+    });
+
+    // ✅ STEP 3: Get tasks due in the next 7 days from accessible projects
+    const tasksDueNext7Days = await Task.find({
+      assignee: userId,
+      dueDate: { 
+        $gte: startOfToday,
+        $lte: next7Days 
+      },
+      status: { $in: ['to-do', 'in-progress'] },
+      isActive: true,
+      project: { $in: accessibleProjectIds } // ✅ Only from accessible projects
+    })
+    .select('_id title dueDate priority status project')
+    .populate('project', 'title')
+    .sort({ dueDate: 1 })
+    .lean();
+
+    // ✅ STEP 4: Count tasks completed in the last 7 days from accessible projects
+    const tasksCompletedLast7Days = await Task.countDocuments({
+      assignee: userId,
+      status: 'done',
+      completedAt: { $gte: last7DaysStart },
+      isActive: true,
+      project: { $in: accessibleProjectIds } // ✅ Only from accessible projects
+    });
+
+    // Format response
+    const stats = {
+      openTaskCount,
+      tasksDueNext7Days: tasksDueNext7Days.map(task => ({
+        _id: task._id,
+        title: task.title,
+        dueDate: task.dueDate,
+        priority: task.priority,
+        status: task.status,
+        projectTitle: task.project?.title || 'No Project'
+      })),
+      tasksCompletedLast7Days
+    };
+
+    console.log('User Productivity Stats:', {
+      userId,
+      accessibleProjects: accessibleProjectIds.length,
+      openTaskCount,
+      tasksDueCount: tasksDueNext7Days.length,
+      completedCount: tasksCompletedLast7Days,
+      dateRange: {
+        startOfToday: startOfToday.toISOString(),
+        next7Days: next7Days.toISOString(),
+        last7DaysStart: last7DaysStart.toISOString()
+      }
+    });
+
+    res.status(200).json(stats);
+
+  } catch (error) {
+    console.error("Get user productivity stats error:", error);
+    res.status(500).json({ 
+      message: "Internal Server Error", 
+      error: error.message 
+    });
+  }
+};
+
+
+
 export {
   getProjectAnalytics,
   getWorkspaceIntelligence,
   getProjectLeaderboard,
   refreshAnalytics,
+  getUserProductivityStats // Add this export
 };

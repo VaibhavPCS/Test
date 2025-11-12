@@ -1,19 +1,24 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchData } from '@/lib/fetch-util';
-import type { UserProductivityStats, ApiError } from '../types';
+import { apiClient } from '@/lib/fetch-util'; // ✅ Use this, not a new axios import
+import type { UserProductivityStats } from '../types';
 
-export const useUserAnalytics = (userId: string) => {
-  return useQuery<UserProductivityStats, ApiError>({
+interface UseUserAnalyticsOptions {
+  enabled?: boolean;
+}
+
+export function useUserAnalytics(userId: string, options?: UseUserAnalyticsOptions) {
+  return useQuery<UserProductivityStats>({
     queryKey: ['analytics', 'user', userId],
     queryFn: async () => {
-      const response = await fetchData<UserProductivityStats>(`/analytics/user/${userId}`);
-      return response;
+      // ✅ FIX: Don't include /api-v1 because it's already in apiClient's baseURL
+      const response = await apiClient.get<UserProductivityStats>(
+        `/analytics/user/${userId}` // No /api-v1 prefix!
+      );
+      return response.data;
     },
-    enabled: !!userId, // Only fetch if userId is provided
-    staleTime: 0, // Real-time data - no caching
-    gcTime: 0, // Don't cache results
+    enabled: !!userId && (options?.enabled ?? true),
+    staleTime: 0,
+    gcTime: 0,
     refetchOnWindowFocus: true,
-    retry: 3,
-    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
-};
+}

@@ -70,7 +70,7 @@ export interface ProjectAnalyticsResponse {
 
 export interface UserProductivityStats {
   openTaskCount: number;
-  tasksDueNext7Days: any[];
+  tasksDueNext7Days: TaskDueNext7Days[];
   tasksCompletedLast7Days: number;
 }
 
@@ -93,4 +93,15 @@ export interface LeaderboardResponse {
   lastUpdated: string | null;
   workspaceRole: string;
   workspaceId: string;
+}
+
+// frontend/app/features/analytics/types/index.ts
+
+export interface TaskDueNext7Days {
+  _id: string;
+  title: string;
+  dueDate: Date | string;
+  priority: 'low' | 'medium' | 'high' | 'urgent';
+  status: 'to-do' | 'in-progress' | 'done';
+  projectTitle?: string;
 }

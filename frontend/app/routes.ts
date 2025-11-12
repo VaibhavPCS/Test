@@ -37,6 +37,7 @@ export default [
       index("routes/analytics/performance.tsx"),
       route("workspace", "routes/analytics/workspace.tsx"),
       route("leaderboard", "routes/analytics/leaderboard.tsx"),
+      route("personal", "routes/analytics/personal.tsx"), // ✅ ADD THIS LINE
     ]),
   ]),
 

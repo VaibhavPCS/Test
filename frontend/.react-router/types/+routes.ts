@@ -74,6 +74,9 @@ type Pages = {
   "/analytics/leaderboard": {
     params: {};
   };
+  "/analytics/personal": {
+    params: {};
+  };
   "/*": {
     params: {
       "*": string;
@@ -84,7 +87,7 @@ type Pages = {
 type RouteFiles = {
   "root.tsx": {
     id: "root";
-    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/analytics" | "/analytics/workspace" | "/analytics/leaderboard" | "/*";
+    page: "/" | "/sign-in" | "/sign-up" | "/verify-otp" | "/forgot-password" | "/reset-password" | "/verify-email" | "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/analytics" | "/analytics/workspace" | "/analytics/leaderboard" | "/analytics/personal" | "/*";
   };
   "routes/root/redirect.tsx": {
     id: "routes/root/redirect";
@@ -120,7 +123,7 @@ type RouteFiles = {
   };
   "components/layout/dashboard-layout.tsx": {
     id: "components/layout/dashboard-layout";
-    page: "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/analytics" | "/analytics/workspace" | "/analytics/leaderboard";
+    page: "/dashboard" | "/workspace" | "/tasks" | "/meetings" | "/members" | "/archived" | "/chat" | "/settings" | "/project/:id" | "/task/:id" | "/analytics" | "/analytics/workspace" | "/analytics/leaderboard" | "/analytics/personal";
   };
   "routes/dashboard/dashboard.tsx": {
     id: "routes/dashboard/dashboard";
@@ -164,7 +167,7 @@ type RouteFiles = {
   };
   "routes/analytics/analytics.tsx": {
     id: "routes/analytics/analytics";
-    page: "/analytics" | "/analytics/workspace" | "/analytics/leaderboard";
+    page: "/analytics" | "/analytics/workspace" | "/analytics/leaderboard" | "/analytics/personal";
   };
   "routes/analytics/performance.tsx": {
     id: "routes/analytics/performance";
@@ -177,6 +180,10 @@ type RouteFiles = {
   "routes/analytics/leaderboard.tsx": {
     id: "routes/analytics/leaderboard";
     page: "/analytics/leaderboard";
+  };
+  "routes/analytics/personal.tsx": {
+    id: "routes/analytics/personal";
+    page: "/analytics/personal";
   };
   "routes/root/not-found.tsx": {
     id: "routes/root/not-found";

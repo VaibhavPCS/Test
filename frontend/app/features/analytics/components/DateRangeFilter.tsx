@@ -148,7 +148,7 @@ export const DateRangeFilter = ({ onChange, className }: DateRangeFilterProps) =
         <PopoverContent className="w-auto p-0" align="start">
           <div className="flex">
             {/* Preset Ranges Sidebar */}
-            <div className="border-r p-3 space-y-1">
+            {/* <div className="border-r p-3 space-y-1">
               <div className="text-sm font-medium mb-2">Presets</div>
               {presetRanges.map((preset) => (
                 <Button
@@ -161,7 +161,7 @@ export const DateRangeFilter = ({ onChange, className }: DateRangeFilterProps) =
                   {preset.label}
                 </Button>
               ))}
-            </div>
+            </div> */}
 
             {/* Calendar */}
             <div className="p-3">
@@ -169,7 +169,7 @@ export const DateRangeFilter = ({ onChange, className }: DateRangeFilterProps) =
                 mode="range"
                 selected={dateRange}
                 onSelect={handleRangeSelect}
-                numberOfMonths={2}
+                numberOfMonths={1}
                 disabled={(date) => isAfter(date, new Date())}
                 modifiersClassNames={{
                   selected: "bg-blue-500 text-white hover:bg-blue-600",
