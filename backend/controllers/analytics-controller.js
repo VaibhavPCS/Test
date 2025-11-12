@@ -7,6 +7,7 @@ import Workspace from "../models/workspace.js";
 import WorkspaceSummary from "../models/workspace-summary.js";
 import ProjectLeaderboard from "../models/project-leaderboard.js";
 import mongoose from "mongoose";
+import { getTaskLifecycle as getTaskLifecycleService, canAccessTaskLifecycle } from "../services/lifecycle.service.js";
 
 const getProjectAnalytics = async (req, res) => {
   try {
@@ -770,5 +771,40 @@ export {
   getWorkspaceIntelligence,
   getProjectLeaderboard,
   refreshAnalytics,
-  getUserProductivityStats
+  getUserProductivityStats,
+  getTaskLifecycle
 };
+
+async function getTaskLifecycle(req, res) {
+  try {
+    const { taskId } = req.params;
+    const { page = 1, limit = 50 } = req.query;
+    const userId = req.userId;
+
+    if (!mongoose.Types.ObjectId.isValid(taskId)) {
+      return res.status(400).json({ message: 'Invalid task ID' });
+    }
+
+    const task = await Task.findById(taskId).populate('project', 'projectHead');
+    if (!task) {
+      return res.status(404).json({ message: 'Task not found' });
+    }
+
+    const allowed = await canAccessTaskLifecycle(userId, task);
+    if (!allowed) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    const result = await getTaskLifecycleService(taskId, { page, limit });
+    return res.status(200).json({
+      taskId: taskId,
+      taskTitle: result.task?.title || '',
+      timeline: result.timeline,
+      metrics: result.metrics,
+      pagination: result.pagination
+    });
+  } catch (error) {
+    console.error('Get task lifecycle error:', error);
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+}

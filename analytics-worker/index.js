@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
 import { aggregateAnalytics } from './jobs/aggregateAnalytics.js';
+import { aggregateAllEmployees } from './jobs/employee-aggregation.js';
 
 dotenv.config();
 
@@ -183,10 +184,59 @@ function registerReportingModels(connection) {
   
   connection.model('WorkspaceSummary', workspaceSummarySchema);
   connection.model('ProjectLeaderboard', projectLeaderboardSchema);
+
+  const employeePerformanceSnapshotSchema = new Schema({
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    snapshotDate: { type: Date, required: true, index: true, default: Date.now },
+    period: { type: String, enum: ['daily', 'weekly', 'monthly'], required: true, index: true },
+    metrics: {
+      total: { type: Number, default: 0 },
+      completed: { type: Number, default: 0 },
+      todo: { type: Number, default: 0 },
+      inProgress: { type: Number, default: 0 },
+      overdue: { type: Number, default: 0 },
+      approved: { type: Number, default: 0 },
+      rejected: { type: Number, default: 0 },
+      pendingApproval: { type: Number, default: 0 },
+      approvalRate: { type: Number, default: 0 },
+      firstTimeApprovalRate: { type: Number, default: 0 },
+      avgRejectionsPerTask: { type: Number, default: 0 },
+      avgTimeToStart: { type: Number, default: 0 },
+      avgTimeToComplete: { type: Number, default: 0 },
+      avgTimeToApproval: { type: Number, default: 0 },
+      totalActiveTime: { type: Number, default: 0 },
+      reworkRate: { type: Number, default: 0 },
+      onTimeCompletionRate: { type: Number, default: 0 },
+      productivityScore: { type: Number, default: 0 }
+    },
+    projects: [{
+      projectId: { type: Schema.Types.ObjectId, ref: 'Project' },
+      projectName: { type: String },
+      role: { type: String },
+      tasksAssigned: { type: Number, default: 0 },
+      tasksCompleted: { type: Number, default: 0 },
+      approvalRate: { type: Number, default: 0 }
+    }],
+    rankings: {
+      inWorkspace: { type: Schema.Types.Mixed, default: null },
+      totalInWorkspace: { type: Number, default: 0 },
+      percentile: { type: Number, default: 0 },
+      rank: { type: Number, default: 0 }
+    },
+    trends: {
+      tasksCompletedChange: { type: Number, default: 0 },
+      approvalRateChange: { type: Number, default: 0 },
+      productivityScoreChange: { type: Number, default: 0 }
+    }
+  }, { timestamps: true, collection: 'employee_performance_snapshots' });
+  employeePerformanceSnapshotSchema.index({ userId: 1, period: 1, snapshotDate: -1 });
+  employeePerformanceSnapshotSchema.index({ snapshotDate: -1, period: 1 });
+  connection.model('EmployeePerformanceSnapshot', employeePerformanceSnapshotSchema);
 }
 
 // Schedule the aggregation job
 const schedulePattern = process.env.CRON_SCHEDULE || '0 7-12 * * *';
+const employeeSchedule = '0 * * * *';
 
 console.log(`🕒 Analytics Worker: Scheduled with pattern: ${schedulePattern}`);
 
@@ -201,6 +251,17 @@ const job = cron.schedule(schedulePattern, async () => {
   }
 });
 
+// Hourly employee aggregation per Story 3.5
+const employeeJob = cron.schedule(employeeSchedule, async () => {
+  console.log(`⏰ [${new Date().toISOString()}] Running hourly employee aggregation...`);
+  try {
+    await aggregateAllEmployees(mainDB, reportingDB);
+    console.log(`✅ [${new Date().toISOString()}] Employee aggregation completed`);
+  } catch (error) {
+    console.error(`❌ [${new Date().toISOString()}] Employee aggregation failed:`, error.message);
+  }
+});
+
 console.log('🚀 Analytics Worker Service started successfully');
 console.log('⏳ Waiting for scheduled execution...');
 
@@ -211,6 +272,7 @@ process.stdin.resume();
 process.on('SIGTERM', async () => {
   console.log('\n🛑 Analytics Worker: Shutting down gracefully...');
   job.stop();
+  employeeJob.stop();
   await mainDB.close();
   await reportingDB.close();
   process.exit(0);
@@ -219,6 +281,7 @@ process.on('SIGTERM', async () => {
 process.on('SIGINT', async () => {
   console.log('\n🛑 Analytics Worker: Shutting down gracefully...');
   job.stop();
+  employeeJob.stop();
   await mainDB.close();
   await reportingDB.close();
   process.exit(0);

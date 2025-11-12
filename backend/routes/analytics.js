@@ -5,7 +5,8 @@ import {
   getWorkspaceIntelligence,
   getProjectLeaderboard,
   refreshAnalytics,
-  getUserProductivityStats
+  getUserProductivityStats,
+  getTaskLifecycle
 } from '../controllers/analytics-controller.js';
 
 const router = express.Router();
@@ -314,5 +315,8 @@ router.post('/refresh', refreshAnalytics);
  *         description: Internal Server Error
  */
 router.get('/user/:userId', getUserProductivityStats);
+
+// Task lifecycle endpoint
+router.get('/task/:taskId/lifecycle', getTaskLifecycle);
 
 export default router;
