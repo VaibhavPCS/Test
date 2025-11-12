@@ -46,7 +46,7 @@ const createProject = async (req, res) => {
     }
 
     // ✅ Create project with new structure
-    const project = await Project.create({
+    const project = new Project({
       title,
       description,
       status: status || 'Planning',
@@ -55,9 +55,12 @@ const createProject = async (req, res) => {
       workspace: user.currentWorkspace,
       creator: userId,
       projectHead: projectHeadId,
-      members: [], // ✅ Start with empty members, project head can add them later
+      members: [],
       attachments
     });
+    project._auditActor = userId;
+    project._auditMetadata = { ipAddress: req.ip, userAgent: req.get('user-agent') };
+    await project.save();
 
     const populatedProject = await Project.findById(project._id)
       .populate('creator', 'name email')
@@ -173,7 +176,7 @@ const updateProject = async (req, res) => {
     const updatedProject = await Project.findByIdAndUpdate(
       projectId,
       updates,
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent'), reason: updates.dateChangeReason || updates.reason } }
     )
       .populate('creator', 'name email')
       .populate('workspace', 'name')
@@ -212,7 +215,11 @@ const deleteProject = async (req, res) => {
     }
 
     // Soft delete - set isActive to false
-    await Project.findByIdAndUpdate(projectId, { isActive: false });
+    await Project.findByIdAndUpdate(
+      projectId,
+      { isActive: false },
+      { auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
+    );
 
     res.status(200).json({ message: "Project deleted successfully" });
 
@@ -274,6 +281,8 @@ const addMemberToProject = async (req, res) => {
       userId: memberToAdd._id
     });
 
+    project._auditActor = userId;
+    project._auditMetadata = { ipAddress: req.ip, userAgent: req.get('user-agent') };
     await project.save();
 
     const updatedProject = await Project.findById(projectId)
@@ -344,6 +353,8 @@ const removeMemberFromProject = async (req, res) => {
       member => member.userId.toString() !== memberId
     );
 
+    project._auditActor = userId;
+    project._auditMetadata = { ipAddress: req.ip, userAgent: req.get('user-agent') };
     await project.save();
 
     const updatedProject = await Project.findById(projectId)
