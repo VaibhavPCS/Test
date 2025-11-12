@@ -13,7 +13,7 @@ export default function ProjectApprovalMetrics({ projectId }: { projectId: strin
   return (
     <Card className="p-4 space-y-4">
       <h3 className="text-lg font-semibold">Task Approval Metrics</h3>
-      <DateRangeFilter onChange={(range: any) => setDateRange({ startDate: range?.startDate, endDate: range?.endDate })} />
+      {/* <DateRangeFilter onChange={(range: any) => setDateRange({ startDate: range?.startDate, endDate: range?.endDate })} /> */}
       {loading && (<div>Loading...</div>)}
       {error && (<div className="text-red-600">{error}</div>)}
       {!loading && !error && (

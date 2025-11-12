@@ -24,6 +24,8 @@ const router = express.Router();
 
 router.use(authenticateToken);
 
+router.get('/user/:userId', getUserProductivityStats);
+
 /**
  * @swagger
  * /analytics/project/{projectId}:
