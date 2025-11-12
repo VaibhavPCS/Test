@@ -123,6 +123,16 @@ const uploadProjects = multer({
     }
 });
 
+const uploadTask = multer({
+    storage: createStorage('uploads/task'),
+    fileFilter,
+    limits: {
+        fileSize: parseInt(process.env.MAX_FILE_SIZE) || 5 * 1024 * 1024, // 5MB per file
+        files: 3, // Allow up to 3 files per task
+        fieldSize: 1024 * 1024
+    }
+});
+
 // Error handler middleware for multer errors
 export const handleUploadErrors = (err, req, res, next) => {
     if (err instanceof multer.MulterError) {
@@ -174,3 +184,6 @@ export { uploadChatFiles };
 
 // Named export for project attachments
 export { uploadProjects };
+
+// Named export for task attachments
+export { uploadTask };

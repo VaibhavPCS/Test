@@ -1,3 +1,5 @@
+// backend/controllers/analytics-controller.js
+
 import Task from "../models/task.js";
 import Project from "../models/project.js";
 import User from "../models/user.js";
@@ -12,12 +14,18 @@ const getProjectAnalytics = async (req, res) => {
     const userId = req.userId;
     const { startDate, endDate } = req.query;
 
-    // console.log("Analytics request:", {
-    //   projectId,
-    //   userId,
-    //   startDate,
-    //   endDate,
-    // });
+    // ✅ FIX: Handle "all" projects case
+    if (projectId === 'all') {
+      return getAllProjectsAnalytics(req, res);
+    }
+
+    // ✅ Validate ObjectId before querying
+    if (!mongoose.Types.ObjectId.isValid(projectId)) {
+      return res.status(400).json({
+        status: 'fail',
+        message: 'Invalid project ID format',
+      });
+    }
 
     // Get project with workspace populated
     const project = await Project.findById(projectId).populate("workspace");
@@ -83,8 +91,6 @@ const getProjectAnalytics = async (req, res) => {
       ...dateFilter,
     }).populate("assignee", "name email");
 
-    // console.log(`Found ${tasks.length} tasks for project ${projectId}`);
-
     if (tasks.length === 0) {
       return res.status(200).json({
         message: "No data available",
@@ -144,52 +150,120 @@ const getProjectAnalytics = async (req, res) => {
   }
 };
 
-// ✅ FIXED: New status calculation logicf
-const calculateProjectStatus = (project, completionPercentage) => {
-  const now = new Date();
-  const dueDate = new Date(project.endDate);
-  const startDate = new Date(project.startDate);
+// ✅ NEW: Function to handle "All Projects" analytics
+const getAllProjectsAnalytics = async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { startDate, endDate } = req.query;
 
-  // ✅ Priority 1: If project has explicit status of "Completed"
-  if (project.status === "Completed" || completionPercentage === 100) {
-    return "Completed";
+    const user = await User.findById(userId);
+    
+    // Get workspace ID from header or user's current workspace
+    const workspaceId = req.headers['workspace-id'] || user.currentWorkspace?._id;
+
+    if (!workspaceId) {
+      return res.status(400).json({
+        message: 'No workspace context. Please select a workspace.',
+      });
+    }
+
+    // Check workspace access
+    const userWorkspace = user.workspaces.find(
+      (w) => w.workspaceId.toString() === workspaceId.toString()
+    );
+
+    if (!userWorkspace) {
+      return res.status(403).json({
+        message: 'Access denied to this workspace',
+      });
+    }
+
+    // Get all projects in the workspace
+    const projects = await Project.find({ 
+      workspace: workspaceId,
+      isActive: true 
+    });
+
+    if (projects.length === 0) {
+      return res.status(200).json({
+        message: "No projects available in this workspace",
+        analytics: null,
+        project: {
+          _id: 'all',
+          title: 'All Projects',
+        },
+        totalTasks: 0,
+      });
+    }
+
+    const projectIds = projects.map(p => p._id);
+
+    let dateFilter = {};
+    let velocityStartDate = null;
+    let velocityEndDate = null;
+
+    if (startDate && endDate) {
+      const start = new Date(startDate);
+      start.setHours(0, 0, 0, 0);
+
+      const end = new Date(endDate);
+      end.setHours(23, 59, 59, 999);
+
+      velocityStartDate = start;
+      velocityEndDate = end;
+
+      dateFilter.$or = [
+        { startDate: { $gte: start, $lte: end } },
+        { dueDate: { $gte: start, $lte: end } },
+        { startDate: { $lte: end }, dueDate: { $gte: start } },
+      ];
+    }
+
+    // Aggregate tasks across all projects
+    const tasks = await Task.find({
+      project: { $in: projectIds },
+      isActive: true,
+      ...dateFilter,
+    }).populate("assignee", "name email");
+
+    if (tasks.length === 0) {
+      return res.status(200).json({
+        message: "No data available",
+        analytics: null,
+        project: {
+          _id: 'all',
+          title: 'All Projects',
+        },
+        totalTasks: 0,
+      });
+    }
+
+    // Calculate overall analytics for all projects
+    const overallAnalytics = calculateCategoryAnalytics(
+      tasks,
+      velocityStartDate,
+      velocityEndDate
+    );
+
+    res.status(200).json({
+      analytics: {
+        overall: overallAnalytics,
+        categories: {}, // No category breakdown for "all projects"
+      },
+      project: {
+        _id: 'all',
+        title: 'All Projects',
+        workspace: workspaceId,
+      },
+      totalTasks: tasks.length,
+    });
+  } catch (error) {
+    console.error('Get all projects analytics error:', error);
+    res.status(500).json({ 
+      message: 'Internal Server Error', 
+      error: error.message 
+    });
   }
-
-  // ✅ Priority 2: Map project status directly (if it matches our status types)
-  const projectStatus = project.status;
-  const validStatuses = ["On Track", "At Risk", "Off Track", "Completed"];
-  
-  // If project status is already one of our valid analytics statuses, use it
-  if (validStatuses.includes(projectStatus)) {
-    return projectStatus;
-  }
-
-  // ✅ Priority 3: Calculate based on deadline and completion
-  const daysUntilDue = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
-
-  // Past due date and not completed
-  if (daysUntilDue < 0 && completionPercentage < 100) {
-    return "Off Track";
-  }
-
-  // Calculate expected progress based on time elapsed
-  const totalDuration = Math.ceil((dueDate - startDate) / (1000 * 60 * 60 * 24));
-  const timeElapsed = totalDuration - daysUntilDue;
-  const expectedCompletion = totalDuration > 0 ? (timeElapsed / totalDuration) * 100 : 0;
-
-  // ✅ More realistic thresholds:
-  // If completion is less than 50% of expected progress
-  if (completionPercentage < expectedCompletion * 0.5) {
-    return "Off Track";
-  }
-
-  // If completion is less than 80% of expected progress
-  if (completionPercentage < expectedCompletion * 0.8) {
-    return "At Risk";
-  }
-
-  // On track or ahead
-  return "On Track";
 };
 
 const calculateCategoryAnalytics = (
@@ -349,8 +423,13 @@ const calculateVelocityTimeSeries = (tasks, startDate, endDate) => {
       return completed >= dayStart && completed <= dayEnd;
     }).length;
 
+    const year = current.getFullYear();
+    const month = String(current.getMonth() + 1).padStart(2, '0');
+    const day = String(current.getDate()).padStart(2, '0');
+    const localDateStr = `${year}-${month}-${day}`;
+
     timeSeries.push({
-      date: current.toISOString().split("T")[0],
+      date: localDateStr,
       tasksCreated,
       tasksCompleted,
     });
@@ -359,6 +438,43 @@ const calculateVelocityTimeSeries = (tasks, startDate, endDate) => {
   }
 
   return timeSeries;
+};
+
+const calculateProjectStatus = (project, completionPercentage) => {
+  const now = new Date();
+  const dueDate = new Date(project.endDate);
+  const startDate = new Date(project.startDate);
+
+  if (project.status === "Completed" || completionPercentage === 100) {
+    return "Completed";
+  }
+
+  const projectStatus = project.status;
+  const validStatuses = ["On Track", "At Risk", "Off Track", "Completed"];
+  
+  if (validStatuses.includes(projectStatus)) {
+    return projectStatus;
+  }
+
+  const daysUntilDue = Math.ceil((dueDate - now) / (1000 * 60 * 60 * 24));
+
+  if (daysUntilDue < 0 && completionPercentage < 100) {
+    return "Off Track";
+  }
+
+  const totalDuration = Math.ceil((dueDate - startDate) / (1000 * 60 * 60 * 24));
+  const timeElapsed = totalDuration - daysUntilDue;
+  const expectedCompletion = totalDuration > 0 ? (timeElapsed / totalDuration) * 100 : 0;
+
+  if (completionPercentage < expectedCompletion * 0.5) {
+    return "Off Track";
+  }
+
+  if (completionPercentage < expectedCompletion * 0.8) {
+    return "At Risk";
+  }
+
+  return "On Track";
 };
 
 const getWorkspaceIntelligence = async (req, res) => {
@@ -491,7 +607,6 @@ const getProjectLeaderboard = async (req, res) => {
             ? Math.round((project.completedTasks / project.totalTasks) * 100)
             : 0;
 
-        // ✅ FIXED: Use the actual project status directly from the database
         const status = project.status;
 
         return {
@@ -502,7 +617,7 @@ const getProjectLeaderboard = async (req, res) => {
             userId: project.projectHead?._id?.toString() || "",
             userName: project.projectHead?.name || "Unassigned",
           },
-          status: status,  // ✅ This will be "On Hold" for your project
+          status: status,
           completionPercentage: completionPercentage,
           dueDate: project.endDate,
           lastUpdatedAt: new Date(),
@@ -528,7 +643,6 @@ const getProjectLeaderboard = async (req, res) => {
   }
 };
 
-
 const refreshAnalytics = async (req, res) => {
   try {
     const userId = req.userId;
@@ -549,24 +663,17 @@ const refreshAnalytics = async (req, res) => {
   }
 };
 
-/**
- * Get user personal productivity statistics
- * Real-time calculation from main database
- * Only includes tasks from active projects and non-archived workspaces
- */
 const getUserProductivityStats = async (req, res) => {
   try {
     const { userId } = req.params;
     const authenticatedUserId = req.userId;
 
-    // Authorization: Users can only request their own data
     if (userId !== authenticatedUserId.toString()) {
       return res.status(403).json({ 
         message: "Forbidden. You can only access your own productivity stats." 
       });
     }
 
-    // Calculate date ranges
     const now = new Date();
     
     const startOfToday = new Date(now);
@@ -580,26 +687,21 @@ const getUserProductivityStats = async (req, res) => {
     last7DaysStart.setDate(last7DaysStart.getDate() - 7);
     last7DaysStart.setHours(0, 0, 0, 0);
 
-    // ✅ STEP 1: Get all active projects in non-archived workspaces
     const activeProjects = await Project.find({
       isActive: true
     })
     .populate({
       path: 'workspace',
-      match: { isArchived: false }, // Only non-archived workspaces
+      match: { isArchived: false },
       select: '_id name isArchived'
     })
     .select('_id workspace')
     .lean();
 
-    // Filter out projects with null workspace (archived workspaces)
     const accessibleProjectIds = activeProjects
       .filter(p => p.workspace !== null)
       .map(p => p._id);
 
-    console.log('Accessible project IDs:', accessibleProjectIds.length);
-
-    // If no accessible projects, return zeros
     if (accessibleProjectIds.length === 0) {
       return res.status(200).json({
         openTaskCount: 0,
@@ -608,15 +710,13 @@ const getUserProductivityStats = async (req, res) => {
       });
     }
 
-    // ✅ STEP 2: Count open tasks from accessible projects only
     const openTaskCount = await Task.countDocuments({
       assignee: userId,
       status: { $in: ['to-do', 'in-progress'] },
       isActive: true,
-      project: { $in: accessibleProjectIds } // ✅ Only from accessible projects
+      project: { $in: accessibleProjectIds }
     });
 
-    // ✅ STEP 3: Get tasks due in the next 7 days from accessible projects
     const tasksDueNext7Days = await Task.find({
       assignee: userId,
       dueDate: { 
@@ -625,23 +725,21 @@ const getUserProductivityStats = async (req, res) => {
       },
       status: { $in: ['to-do', 'in-progress'] },
       isActive: true,
-      project: { $in: accessibleProjectIds } // ✅ Only from accessible projects
+      project: { $in: accessibleProjectIds }
     })
     .select('_id title dueDate priority status project')
     .populate('project', 'title')
     .sort({ dueDate: 1 })
     .lean();
 
-    // ✅ STEP 4: Count tasks completed in the last 7 days from accessible projects
     const tasksCompletedLast7Days = await Task.countDocuments({
       assignee: userId,
       status: 'done',
       completedAt: { $gte: last7DaysStart },
       isActive: true,
-      project: { $in: accessibleProjectIds } // ✅ Only from accessible projects
+      project: { $in: accessibleProjectIds }
     });
 
-    // Format response
     const stats = {
       openTaskCount,
       tasksDueNext7Days: tasksDueNext7Days.map(task => ({
@@ -655,19 +753,6 @@ const getUserProductivityStats = async (req, res) => {
       tasksCompletedLast7Days
     };
 
-    console.log('User Productivity Stats:', {
-      userId,
-      accessibleProjects: accessibleProjectIds.length,
-      openTaskCount,
-      tasksDueCount: tasksDueNext7Days.length,
-      completedCount: tasksCompletedLast7Days,
-      dateRange: {
-        startOfToday: startOfToday.toISOString(),
-        next7Days: next7Days.toISOString(),
-        last7DaysStart: last7DaysStart.toISOString()
-      }
-    });
-
     res.status(200).json(stats);
 
   } catch (error) {
@@ -679,12 +764,11 @@ const getUserProductivityStats = async (req, res) => {
   }
 };
 
-
-
 export {
   getProjectAnalytics,
+  getAllProjectsAnalytics, // ✅ Export the new function
   getWorkspaceIntelligence,
   getProjectLeaderboard,
   refreshAnalytics,
-  getUserProductivityStats // Add this export
+  getUserProductivityStats
 };

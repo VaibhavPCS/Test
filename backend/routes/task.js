@@ -1,6 +1,6 @@
 import express from 'express';
 import { authenticateToken } from '../libs/auth-middleware.js';
-import upload, { uploadHandover } from '../libs/upload-middleware.js';
+import upload, { uploadHandover, uploadTask } from '../libs/upload-middleware.js';
 import { handleUploadErrors } from '../libs/upload-middleware.js';
 import {
   createTask,
@@ -14,7 +14,9 @@ import {
   deleteTask,    // ✅ Import delete function
   approveTask,   // ✅ NEW: Import approve function
   rejectTask,    // ✅ ENHANCED: Import reject function
-  reassignApprovedTask  // ✅ NEW: Import reassign function
+  reassignApprovedTask,  // ✅ NEW: Import reassign function
+  uploadTaskAttachments,  // ✅ NEW: Import upload attachments function
+  deleteTaskAttachment    // ✅ NEW: Import delete attachment function
 } from '../controllers/task-controller.js';
 
 const router = express.Router();
@@ -282,6 +284,75 @@ router.post('/:taskId/reassign', reassignApprovedTask);
 
 /**
  * @swagger
+ * /task/{taskId}/attachments:
+ *   post:
+ *     summary: Upload attachments to an existing task (project head or admin only)
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               attachments:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Attachments uploaded successfully.
+ *       401:
+ *         description: Unauthorized.
+ *       403:
+ *         description: Only project head or admin can upload attachments.
+ *       404:
+ *         description: Task not found.
+ */
+router.post('/:taskId/attachments', uploadTask.array('attachments', 3), handleUploadErrors, uploadTaskAttachments);
+
+/**
+ * @swagger
+ * /task/{taskId}/attachments/{index}:
+ *   delete:
+ *     summary: Delete a task attachment (project head or admin only)
+ *     tags: [Tasks]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: taskId
+ *         required: true
+ *         schema:
+ *           type: string
+ *       - in: path
+ *         name: index
+ *         required: true
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Attachment deleted successfully.
+ *       401:
+ *         description: Unauthorized.
+ *       403:
+ *         description: Only project head or admin can delete attachments.
+ *       404:
+ *         description: Task or attachment not found.
+ */
+router.delete('/:taskId/attachments/:index', deleteTaskAttachment);
+
+/**
+ * @swagger
  * /task/{taskId}:
  *   get:
  *     summary: Get a task by ID
@@ -447,7 +518,7 @@ router.put('/:taskId', updateTask);
  *             schema:
  *               $ref: '#/components/schemas/Error'
  */
-router.post('/', createTask);
+router.post('/', uploadTask.array('attachments', 3), handleUploadErrors, createTask);
 
 /**
  * @swagger

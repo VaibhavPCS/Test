@@ -62,6 +62,22 @@ const createTask = async (req, res) => {
     const msPerDay = 1000 * 60 * 60 * 24;
     const durationDays = Math.max(1, Math.ceil((end - start) / msPerDay) + 1);
 
+    // ✅ Process attachments if provided
+    const attachments = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const isImage = file.mimetype.startsWith('image/');
+        const subfolder = isImage ? 'images' : 'documents';
+        attachments.push({
+          fileName: file.originalname,
+          fileUrl: `/uploads/task/${subfolder}/${file.filename}`,
+          fileType: isImage ? 'image' : 'document',
+          fileSize: file.size,
+          mimeType: file.mimetype
+        });
+      }
+    }
+
     // Create task
     const task = await Task.create({
       title,
@@ -74,7 +90,8 @@ const createTask = async (req, res) => {
       startDate: start,
       dueDate: end,
       durationDays,
-      approvalStatus: 'not-required' // ✅ Default approval status
+      approvalStatus: 'not-required', // ✅ Default approval status
+      attachments: attachments // ✅ Add attachments
     });
 
     const populatedTask = await Task.findById(task._id)
@@ -1067,6 +1084,157 @@ const reassignApprovedTask = async (req, res) => {
   }
 };
 
+// ✅ NEW: Upload task attachments (project head or admin only)
+const uploadTaskAttachments = async (req, res) => {
+  try {
+    const { taskId } = req.params;
+    const userId = req.userId;
+
+    const task = await Task.findById(taskId).populate({
+      path: 'project',
+      select: 'projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id'
+      }
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    // Get current user details
+    const currentUser = await User.findById(userId);
+
+    // Check permissions: only project head or admin can upload
+    const isProjectHead = task.project.projectHead._id.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can upload task attachments" });
+    }
+
+    // Process attachments
+    const newAttachments = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        const isImage = file.mimetype.startsWith('image/');
+        const subfolder = isImage ? 'images' : 'documents';
+        newAttachments.push({
+          fileName: file.originalname,
+          fileUrl: `/uploads/task/${subfolder}/${file.filename}`,
+          fileType: isImage ? 'image' : 'document',
+          fileSize: file.size,
+          mimeType: file.mimetype
+        });
+      }
+    }
+
+    if (newAttachments.length === 0) {
+      return res.status(400).json({ message: "No files uploaded" });
+    }
+
+    // Update task with new attachments
+    const updatedTask = await Task.findByIdAndUpdate(
+      taskId,
+      {
+        $push: { attachments: { $each: newAttachments } }
+      },
+      { new: true }
+    )
+      .populate('assignee', 'name email')
+      .populate('creator', 'name email')
+      .populate('completedBy', 'name email')
+      .populate('approvedBy', 'name email')
+      .populate({
+        path: 'project',
+        select: 'title projectHead',
+        populate: {
+          path: 'projectHead',
+          select: '_id name email'
+        }
+      });
+
+    res.status(200).json({
+      message: "Attachments uploaded successfully",
+      task: updatedTask
+    });
+
+  } catch (error) {
+    console.error('Upload task attachments error:', error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
+// ✅ NEW: Delete task attachment (project head or admin only)
+const deleteTaskAttachment = async (req, res) => {
+  try {
+    const { taskId, index } = req.params;
+    const userId = req.userId;
+
+    const attachmentIndex = parseInt(index, 10);
+    if (isNaN(attachmentIndex) || attachmentIndex < 0) {
+      return res.status(400).json({ message: "Invalid attachment index" });
+    }
+
+    const task = await Task.findById(taskId).populate({
+      path: 'project',
+      select: 'projectHead',
+      populate: {
+        path: 'projectHead',
+        select: '_id'
+      }
+    });
+
+    if (!task) {
+      return res.status(404).json({ message: "Task not found" });
+    }
+
+    // Get current user details
+    const currentUser = await User.findById(userId);
+
+    // Check permissions: only project head or admin can delete
+    const isProjectHead = task.project.projectHead._id.toString() === userId;
+    const isAdmin = ['admin', 'super_admin'].includes(currentUser.role);
+
+    if (!isProjectHead && !isAdmin) {
+      return res.status(403).json({ message: "Only project head or admin can delete task attachments" });
+    }
+
+    // Check if attachment exists
+    if (!task.attachments || attachmentIndex >= task.attachments.length) {
+      return res.status(404).json({ message: "Attachment not found" });
+    }
+
+    // Remove the attachment
+    task.attachments.splice(attachmentIndex, 1);
+    await task.save();
+
+    const updatedTask = await Task.findById(taskId)
+      .populate('assignee', 'name email')
+      .populate('creator', 'name email')
+      .populate('completedBy', 'name email')
+      .populate('approvedBy', 'name email')
+      .populate({
+        path: 'project',
+        select: 'title projectHead',
+        populate: {
+          path: 'projectHead',
+          select: '_id name email'
+        }
+      });
+
+    res.status(200).json({
+      message: "Attachment deleted successfully",
+      task: updatedTask
+    });
+
+  } catch (error) {
+    console.error('Delete task attachment error:', error);
+    res.status(500).json({ message: "Internal Server Error" });
+  }
+};
+
 export {
   createTask,
   getProjectTasks,
@@ -1079,5 +1247,7 @@ export {
   deleteTask,
   approveTask,  // ✅ NEW: Add approve export
   rejectTask,   // ✅ ENHANCED: Add reject export
-  reassignApprovedTask  // ✅ NEW: Add reassign export
+  reassignApprovedTask,  // ✅ NEW: Add reassign export
+  uploadTaskAttachments,  // ✅ NEW: Add upload attachments export
+  deleteTaskAttachment    // ✅ NEW: Add delete attachment export
 };
