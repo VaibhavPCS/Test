@@ -9,6 +9,7 @@ import ProjectLeaderboard from "../models/project-leaderboard.js";
 import mongoose from "mongoose";
 import { getTaskLifecycle as getTaskLifecycleService, canAccessTaskLifecycle } from "../services/lifecycle.service.js";
 import { getProjectDateChanges as getProjectDateChangesService, canAccessProjectHistory } from "../services/project-analytics.service.js";
+import { getEmployeePerformance as getEmployeePerformanceService, getAllEmployees as getAllEmployeesService } from "../services/employee-analytics.service.js";
 import EmployeePerformanceSnapshot from "../models/employee-performance-snapshot.js";
 
 const getProjectAnalytics = async (req, res) => {
@@ -828,6 +829,29 @@ async function getProjectDateChanges(req, res) {
     return res.status(200).json(result);
   } catch (error) {
     console.error('Get project date changes error:', error);
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+}
+
+async function getEmployeePerformance(req, res) {
+  try {
+    const { userId } = req.params;
+    const { period = 'daily', startDate, endDate } = req.query;
+    const snapshots = await getEmployeePerformanceService(userId, { period, startDate, endDate });
+    return res.status(200).json({ userId, period, snapshots });
+  } catch (error) {
+    console.error('Get employee performance error:', error);
+    return res.status(500).json({ message: 'Internal Server Error' });
+  }
+}
+
+async function getAllEmployees(req, res) {
+  try {
+    const { workspaceId, sortBy = 'metrics.productivityScore', order = 'desc', page = 1, limit = 50 } = req.query;
+    const result = await getAllEmployeesService({ workspaceId, sortBy, order, page, limit });
+    return res.status(200).json(result);
+  } catch (error) {
+    console.error('Get all employees error:', error);
     return res.status(500).json({ message: 'Internal Server Error' });
   }
 }

@@ -89,6 +89,7 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import Breadcrumb from "@/components/layout/Breadcrumb";
 import { TeamAvatars } from "@/components/project/TeamAvatars";
 import RemoveProjectMembersModal from "@/components/project/RemoveProjectMembersModal";
+import ProjectApprovalMetrics from "@/features/analytics/components/ProjectApprovalMetrics";
 import { InviteMembersButton } from "@/components/project/InviteMembersButton";
 import { ProjectOverviewPanel } from "@/components/project/ProjectOverviewPanel";
 import { AttachmentsSidebar } from "@/components/project/AttachmentsSidebar";
@@ -2480,6 +2481,9 @@ const ProjectDetail = () => {
                   />
                 )}
               </TabsContent>
+              <div className="mt-4">
+                {project && <ProjectApprovalMetrics projectId={project._id} />}
+              </div>
             </Tabs>
           </div>
       </div>
