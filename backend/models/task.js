@@ -1,4 +1,5 @@
 import mongoose, { Schema } from "mongoose";
+import { createAuditEntry, determineEventType } from "../middleware/audit-logger.js";
 
 const taskSchema = new Schema(
   {
@@ -109,6 +110,107 @@ const taskSchema = new Schema(
     timestamps: true,
   }
 );
+
+ 
+
+taskSchema.pre("save", async function (next) {
+  this._wasNew = this.isNew === true;
+  if (!this.isNew) {
+    const orig = await this.constructor
+      .findById(this._id)
+      .select("assignee status approvalStatus dueDate priority rejectionReason isActive")
+      .lean();
+    this._auditOriginal = orig || null;
+  }
+  next();
+});
+
+taskSchema.post("save", async function (doc) {
+  try {
+    const actor = doc._auditActor || doc.creator;
+    const meta = doc._auditMetadata || {};
+    if (doc._wasNew) {
+      await createAuditEntry(doc._id, "created", actor, { field: "task", oldValue: null, newValue: doc._id }, meta);
+      return;
+    }
+    const modifiedPaths = doc.modifiedPaths ? doc.modifiedPaths() : [];
+    const eventData = determineEventType(modifiedPaths, doc._auditOriginal, doc);
+    if (eventData) {
+      await createAuditEntry(doc._id, eventData.eventType, actor, eventData.changes, { ...eventData.metadata, ...meta });
+    }
+  } catch (e) {
+    console.error(e);
+  }
+});
+
+
+
+taskSchema.pre("findOneAndUpdate", async function (next) {
+  const fields = "assignee status approvalStatus dueDate priority rejectionReason isActive";
+  try {
+    this._auditOriginal = await this.model.findOne(this.getQuery()).select(fields).lean();
+  } catch (e) {
+    this._auditOriginal = null;
+  }
+  this._auditUpdate = this.getUpdate();
+  const opts = this.getOptions() || {};
+  this._auditActor = opts.auditActor;
+  this._auditMetadata = opts.auditMetadata || {};
+  next();
+});
+
+taskSchema.post("findOneAndUpdate", async function (doc) {
+  try {
+    if (!doc) return;
+    const update = this._auditUpdate || {};
+    const keys = new Set([
+      ...Object.keys(update || {}),
+      ...Object.keys(update.$set || {})
+    ]);
+    const modifiedPaths = Array.from(keys);
+    const eventData = determineEventType(modifiedPaths, this._auditOriginal, doc);
+    if (eventData) {
+      await createAuditEntry(doc._id, eventData.eventType, this._auditActor || doc.creator, eventData.changes, { ...eventData.metadata, ...this._auditMetadata });
+    }
+  } catch (e) {
+    console.error(e);
+  }
+});
+
+
+
+taskSchema.pre("updateOne", async function (next) {
+  const fields = "assignee status approvalStatus dueDate priority rejectionReason isActive";
+  try {
+    this._auditOriginal = await this.model.findOne(this.getQuery()).select(fields).lean();
+  } catch (e) {
+    this._auditOriginal = null;
+  }
+  this._auditUpdate = this.getUpdate();
+  const opts = this.getOptions() || {};
+  this._auditActor = opts.auditActor;
+  this._auditMetadata = opts.auditMetadata || {};
+  next();
+});
+
+taskSchema.post("updateOne", async function () {
+  try {
+    const update = this._auditUpdate || {};
+    const keys = new Set([
+      ...Object.keys(update || {}),
+      ...Object.keys(update.$set || {})
+    ]);
+    const modifiedPaths = Array.from(keys);
+    const after = await this.model.findOne(this.getQuery()).lean();
+    if (!after) return;
+    const eventData = determineEventType(modifiedPaths, this._auditOriginal, after);
+    if (eventData) {
+      await createAuditEntry(after._id, eventData.eventType, this._auditActor, eventData.changes, { ...eventData.metadata, ...this._auditMetadata });
+    }
+  } catch (e) {
+    console.error(e);
+  }
+});
 
 const Task = mongoose.model("Task", taskSchema);
 export default Task;

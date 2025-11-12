@@ -78,8 +78,7 @@ const createTask = async (req, res) => {
       }
     }
 
-    // Create task
-    const task = await Task.create({
+    const task = new Task({
       title,
       description,
       status: status || 'to-do',
@@ -90,9 +89,12 @@ const createTask = async (req, res) => {
       startDate: start,
       dueDate: end,
       durationDays,
-      approvalStatus: 'not-required', // ✅ Default approval status
-      attachments: attachments // ✅ Add attachments
+      approvalStatus: 'not-required',
+      attachments
     });
+    task._auditActor = userId;
+    task._auditMetadata = { ipAddress: req.ip, userAgent: req.get('user-agent') };
+    await task.save();
 
     const populatedTask = await Task.findById(task._id)
       .populate('assignee', 'name email')
@@ -224,7 +226,7 @@ const updateTaskStatus = async (req, res) => {
     const updatedTask = await Task.findByIdAndUpdate(
       taskId,
       updates,
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
@@ -316,7 +318,7 @@ const updateHandoverNotes = async (req, res) => {
         $set: { handoverNotes: handoverNotes || '' },
         ...(newAttachments.length > 0 ? { $push: { handoverAttachments: { $each: newAttachments } } } : {})
       },
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
@@ -529,7 +531,7 @@ const getUserProjectTasks = async (req, res) => {
     const updatedTask = await Task.findByIdAndUpdate(
       taskId,
       updates,
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
@@ -689,8 +691,11 @@ const deleteTask = async (req, res) => {
       return res.status(403).json({ message: "Permission denied to delete this task" });
     }
 
-    // Soft delete - mark as inactive instead of hard delete
-    await Task.findByIdAndUpdate(taskId, { isActive: false });
+    await Task.findByIdAndUpdate(
+      taskId,
+      { isActive: false },
+      { auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
+    );
 
     // ✅ NEW: Update project task counts
     const updateData = { $inc: { totalTasks: -1 } };
@@ -771,7 +776,7 @@ const approveTask = async (req, res) => {
         approvedBy: userId,
         approvedAt: new Date()
       },
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
@@ -905,7 +910,7 @@ const rejectTask = async (req, res) => {
         durationDays,
         assignee: finalAssignee
       },
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
@@ -1039,7 +1044,7 @@ const reassignApprovedTask = async (req, res) => {
         approvedAt: null,
         rejectionReason: null
       },
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
     .populate('assignee', 'name email')
     .populate('creator', 'name email')
@@ -1140,7 +1145,7 @@ const uploadTaskAttachments = async (req, res) => {
       {
         $push: { attachments: { $each: newAttachments } }
       },
-      { new: true }
+      { new: true, auditActor: userId, auditMetadata: { ipAddress: req.ip, userAgent: req.get('user-agent') } }
     )
       .populate('assignee', 'name email')
       .populate('creator', 'name email')
@@ -1206,8 +1211,9 @@ const deleteTaskAttachment = async (req, res) => {
       return res.status(404).json({ message: "Attachment not found" });
     }
 
-    // Remove the attachment
     task.attachments.splice(attachmentIndex, 1);
+    task._auditActor = userId;
+    task._auditMetadata = { ipAddress: req.ip, userAgent: req.get('user-agent') };
     await task.save();
 
     const updatedTask = await Task.findById(taskId)
