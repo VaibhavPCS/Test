@@ -81,8 +81,10 @@ function registerMainModels(connection) {
   }, { timestamps: true });
   
   const userSchema = new Schema({
-    name: String,
-    email: String
+    firstName: String,
+    lastName: String,
+    email: String,
+    workspaces: [{ type: Schema.Types.ObjectId, ref: 'Workspace' }]
   }, { timestamps: true });
   
   connection.model('Workspace', workspaceSchema);
@@ -185,8 +187,11 @@ function registerReportingModels(connection) {
   connection.model('WorkspaceSummary', workspaceSummarySchema);
   connection.model('ProjectLeaderboard', projectLeaderboardSchema);
 
+  // ✅ UPDATED: Employee Performance Snapshot Schema with userName and workspaceId
   const employeePerformanceSnapshotSchema = new Schema({
     userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    userName: { type: String, default: '' },  // ✅ ADDED
+    workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', index: true },  // ✅ ADDED
     snapshotDate: { type: Date, required: true, index: true, default: Date.now },
     period: { type: String, enum: ['daily', 'weekly', 'monthly'], required: true, index: true },
     metrics: {
@@ -218,7 +223,7 @@ function registerReportingModels(connection) {
       approvalRate: { type: Number, default: 0 }
     }],
     rankings: {
-      inWorkspace: { type: Schema.Types.Mixed, default: null },
+      // ✅ REMOVED: inWorkspace field (causes conflicts)
       totalInWorkspace: { type: Number, default: 0 },
       percentile: { type: Number, default: 0 },
       rank: { type: Number, default: 0 }
@@ -228,17 +233,25 @@ function registerReportingModels(connection) {
       approvalRateChange: { type: Number, default: 0 },
       productivityScoreChange: { type: Number, default: 0 }
     }
-  }, { timestamps: true, collection: 'employee_performance_snapshots' });
+  }, { 
+    timestamps: true, 
+    collection: 'employeeperformancesnapshots'  // ✅ Match your actual collection name
+  });
+  
+  // ✅ UPDATED: Add indexes for efficient querying
   employeePerformanceSnapshotSchema.index({ userId: 1, period: 1, snapshotDate: -1 });
+  employeePerformanceSnapshotSchema.index({ workspaceId: 1, period: 1, snapshotDate: -1 });
   employeePerformanceSnapshotSchema.index({ snapshotDate: -1, period: 1 });
+  
   connection.model('EmployeePerformanceSnapshot', employeePerformanceSnapshotSchema);
 }
 
 // Schedule the aggregation job
 const schedulePattern = process.env.CRON_SCHEDULE || '0 7-12 * * *';
-const employeeSchedule = '0 * * * *';
+const employeeSchedule = '0 */6 * * *';  // ✅ CHANGED: Every 6 hours instead of every hour
 
-console.log(`🕒 Analytics Worker: Scheduled with pattern: ${schedulePattern}`);
+console.log(`🕒 Analytics Worker: Workspace aggregation scheduled: ${schedulePattern}`);
+console.log(`🕒 Analytics Worker: Employee aggregation scheduled: ${employeeSchedule} (every 6 hours)`);
 
 const job = cron.schedule(schedulePattern, async () => {
   console.log(`⏰ [${new Date().toISOString()}] Running scheduled analytics aggregation...`);
@@ -251,9 +264,9 @@ const job = cron.schedule(schedulePattern, async () => {
   }
 });
 
-// Hourly employee aggregation per Story 3.5
+// ✅ Employee aggregation every 6 hours
 const employeeJob = cron.schedule(employeeSchedule, async () => {
-  console.log(`⏰ [${new Date().toISOString()}] Running hourly employee aggregation...`);
+  console.log(`⏰ [${new Date().toISOString()}] Running 6-hourly employee aggregation...`);
   try {
     await aggregateAllEmployees(mainDB, reportingDB);
     console.log(`✅ [${new Date().toISOString()}] Employee aggregation completed`);
