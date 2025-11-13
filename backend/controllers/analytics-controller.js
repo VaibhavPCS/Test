@@ -487,9 +487,11 @@ const getWorkspaceIntelligence = async (req, res) => {
     const userId = req.userId;
 
     const user = await User.findById(userId);
-    const userWorkspace = user.workspaces.find(
-      (w) => w.workspaceId._id.toString() === workspaceId
-    );
+    const userWorkspace = user.workspaces.find((w) => {
+      const wid = w.workspaceId;
+      const candidate = wid && wid._id ? wid._id.toString() : wid?.toString();
+      return candidate === workspaceId;
+    });
 
     if (!userWorkspace) {
       return res
@@ -497,15 +499,52 @@ const getWorkspaceIntelligence = async (req, res) => {
         .json({ message: "Access denied to this workspace" });
     }
 
-    const summary = await WorkspaceSummary.findOne({
-      workspaceId: workspaceId,
-    });
+    const summary = await WorkspaceSummary.findOne({ workspaceId });
 
     if (!summary) {
-      return res.status(404).json({
-        message:
-          "No intelligence data available for this workspace yet. Data will be available after the next aggregation.",
-      });
+      const projects = await Project.find({ workspace: workspaceId, isActive: true }).populate('projectHead', 'name email');
+      const projectIds = projects.map(p => p._id);
+      const tasks = projectIds.length > 0
+        ? await Task.find({ project: { $in: projectIds }, isActive: true })
+        : [];
+
+      const totalTasks = tasks.length;
+      const completedTasks = tasks.filter(t => t.status === 'done').length;
+      const overallCompletionRate = totalTasks > 0 ? Math.round((completedTasks / totalTasks) * 100) : 0;
+
+      const activeProjects = projects.map(p => ({ projectId: p._id, projectName: p.title }));
+
+      const openTasks = tasks.filter(t => t.status === 'to-do' || t.status === 'in-progress');
+      const byUser = {};
+      for (const t of openTasks) {
+        if (t.assignee) {
+          const uid = t.assignee.toString();
+          byUser[uid] = (byUser[uid] || 0) + 1;
+        }
+      }
+      const userIds = Object.keys(byUser);
+      const users = userIds.length > 0 ? await User.find({ _id: { $in: userIds } }) : [];
+      const workloadDistribution = users.map(u => ({ userId: u._id, userName: u.name || u.email || 'Unknown', openTaskCount: byUser[u._id.toString()] || 0 })).sort((a,b)=>b.openTaskCount-a.openTaskCount);
+
+      const payload = {
+        workspaceId,
+        overallCompletionRate,
+        activeProjects,
+        workloadDistribution,
+        lastUpdatedAt: new Date().toISOString()
+      };
+
+      try {
+        await WorkspaceSummary.updateOne(
+          { workspaceId },
+          { $set: { ...payload, lastUpdatedAt: new Date() } },
+          { upsert: true }
+        );
+      } catch (e) {
+        console.warn('WorkspaceSummary upsert failed, returning live data only:', e.message);
+      }
+
+      return res.status(200).json(payload);
     }
 
     res.status(200).json({
