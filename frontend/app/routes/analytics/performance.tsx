@@ -52,7 +52,7 @@ const Performance = () => {
       <div className="flex-1">
         <h2 className="text-xl font-semibold text-gray-900">Performance Metrics</h2>
         <p className="text-sm text-gray-600">
-          Project: <span className="font-medium">{data?.project?.title || selectedProjectName || 'Loading...'}</span> 
+          Project: <span className="font-medium">{data?.project?.title || selectedProjectName || '...'}</span> 
           {data?.totalTasks !== undefined && (
             <span className="ml-2 text-gray-500">({data.totalTasks} tasks)</span>
           )}
@@ -60,7 +60,7 @@ const Performance = () => {
         {/* ✅ Show selected workspace/project names instead of IDs */}
         {selectedWorkspaceName && (
           <p className="text-xs text-gray-500 mt-1">
-            Workspace: <span className="font-medium">{selectedWorkspaceName}</span>
+            Workspace: <span className="font-medium">{selectedWorkspaceName || '...'}</span>
             {selectedProjectName && selectedProjectName !== 'All Projects' && (
               <> | Project: <span className="font-medium">{selectedProjectName}</span></>
             )}

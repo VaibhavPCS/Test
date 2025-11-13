@@ -15,6 +15,7 @@ reportingDB.on('error', (err) => {
 
 const employeePerformanceSnapshotSchema = new Schema({
   userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+  workspaceId: { type: Schema.Types.ObjectId, ref: 'Workspace', required: true, index: true },  // ✅ Added for workspace filtering
   snapshotDate: { type: Date, required: true, index: true, default: Date.now },
   period: { type: String, enum: ['daily', 'weekly', 'monthly'], required: true, index: true },
   metrics: {
@@ -46,22 +47,23 @@ const employeePerformanceSnapshotSchema = new Schema({
     approvalRate: { type: Number, default: 0 }
   }],
   rankings: {
-    inWorkspace: { type: Number, default: 0 },
     totalInWorkspace: { type: Number, default: 0 },
     percentile: { type: Number, default: 0 },
     rank: { type: Number, default: 0 }
+    // ✅ Removed inWorkspace field - using root-level workspaceId instead
   },
   trends: {
     tasksCompletedChange: { type: Number, default: 0 },
     approvalRateChange: { type: Number, default: 0 },
     productivityScoreChange: { type: Number, default: 0 }
   }
-}, { timestamps: true, collection: 'employee_performance_snapshots' });
+}, { timestamps: true, collection: 'employeeperformancesnapshots' });
 
+// Indexes for efficient querying
 employeePerformanceSnapshotSchema.index({ userId: 1, period: 1, snapshotDate: -1 });
+employeePerformanceSnapshotSchema.index({ workspaceId: 1, period: 1, snapshotDate: -1 });
 employeePerformanceSnapshotSchema.index({ snapshotDate: -1, period: 1 });
 
 const EmployeePerformanceSnapshot = reportingDB.model('EmployeePerformanceSnapshot', employeePerformanceSnapshotSchema);
 
 export default EmployeePerformanceSnapshot;
-
